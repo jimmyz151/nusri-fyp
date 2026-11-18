@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# 模型权重 / 训练输出（体积大、可重新生成）
+/checkpoints/
+*.pth.tar
+/logs/
+/results/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 环境与密钥
+.env
+.venv/
+venv/

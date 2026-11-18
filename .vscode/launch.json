@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "SPNv2: debug",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "/opt/data/private/venvs/zz_fyp/bin/python",
+            "program": "${workspaceFolder}/src/train.py",
+            "cwd": "${workspaceFolder}",
+            "args": ["--cfg", "configs/baseline.yaml"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
