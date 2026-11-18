@@ -1,3 +1,43 @@
 {
-  "python.defaultInterpreterPath": "/opt/data/private/venvs/zz_fyp/bin/python"
+  "python.useEnvironmentsExtension": false,
+  "python.languageServer": "Jedi",
+
+  "python.defaultInterpreterPath": "/opt/data/private/venvs/zz_fyp/bin/python",
+  "python.terminal.activateEnvironment": true,
+
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.typeCheckingMode": "basic",
+
+  "python.analysis.exclude": [
+    "**/__pycache__/**",
+    "**/checkpoints/**",
+    "**/logs/**",
+    "**/results/**",
+    "**/experiments/**"
+  ],
+  "files.watcherExclude": {
+    "**/__pycache__/**": true,
+    "**/checkpoints/**": true,
+    "**/logs/**": true,
+    "**/results/**": true
+  },
+  "search.exclude": {
+    "**/__pycache__/**": true,
+    "**/checkpoints/**": true,
+    "**/logs/**": true,
+    "**/results/**": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true
+  },
+
+  "terminal.integrated.env.linux": {
+    "LD_LIBRARY_PATH": null
+  }
 }
