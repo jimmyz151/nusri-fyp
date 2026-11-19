@@ -1,2 +1,3 @@
 # nusri-fyp
-# This project will be publicly available in the future.
+
+> 当前仓库还在开发中，仅供记录学习流程。
