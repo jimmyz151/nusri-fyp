@@ -21,8 +21,37 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------
 # Heatmap post-processing
 # -----------------------------------------------------------------------
-def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D):
+def _subpixel_offset(hm, x, y):
+    """ UDP half-pixel correction in grid units, from a 3-point parabola fit.
+
+    Args:
+        hm (np.ndarray): [H, W] heatmap of one channel
+        x, y (int): integer peak location
+
+    Returns:
+        (dx, dy) in [-0.5, 0.5]
+    """
+    H, W = hm.shape
+
+    x0, x1 = max(x - 1, 0), min(x + 1, W - 1)
+    y0, y1 = max(y - 1, 0), min(y + 1, H - 1)
+
+    v      = float(hm[y, x])
+    dl, dr = float(hm[y, x0]), float(hm[y, x1])
+    du, dd = float(hm[y0, x]), float(hm[y1, x])
+    den_x  = 2.0 * v - dl - dr
+    den_y  = 2.0 * v - du - dd
+
+    dx = 0.5 * (dr - dl) / den_x if den_x > 1e-12 else 0.0
+    dy = 0.5 * (dd - du) / den_y if den_y > 1e-12 else 0.0
+
+    return float(np.clip(dx, -0.5, 0.5)), float(np.clip(dy, -0.5, 0.5))
+
+
+def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D,
+                             udp=False):
     # heatmaps: [Nk x H x W]
+    # udp: refine each peak with a parabola fit (sub-pixel) instead of the integer argmax
     nK, nH, nW = heatmaps.shape
 
     # Take max
@@ -47,8 +76,14 @@ def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_tru
             if k in visibleIdx:
                 y = torch.floor(maxInd[k] / nW)
                 x = maxInd[k] - nW * y
-                keypts[k,0] = x / nW * image_size[0]
-                keypts[k,1] = y / nH * image_size[1]
+
+                if udp:
+                    dx, dy = _subpixel_offset(heatmaps[k].numpy(), int(x), int(y))
+                    keypts[k,0] = (float(x) + dx) / nW * image_size[0]
+                    keypts[k,1] = (float(y) + dy) / nH * image_size[1]
+                else:
+                    keypts[k,0] = x / nW * image_size[0]
+                    keypts[k,1] = y / nH * image_size[1]
 
         # PnP
         q, t = pnp(keypts_true_3D[visibleIdx], keypts[visibleIdx].numpy(),

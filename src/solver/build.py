@@ -41,7 +41,7 @@ def get_optimizer(cfg, model):
 def get_scaler(cfg):
     scaler = None
     if cfg.FP16 and cfg.CUDA:
-        scaler = torch.cuda.amp.GradScaler()
+        scaler = torch.amp.GradScaler('cuda')
         logger.info('Mixed-precision training: ENABLED')
 
     return scaler

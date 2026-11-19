@@ -11,7 +11,7 @@ from __future__ import print_function
 import logging
 import time
 
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn.utils import clip_grad_norm_
 
 from utils.utils     import AverageMeter, ProgressMeter
@@ -64,7 +64,7 @@ def do_adapt(epoch, cfg, model, bn_features, data_loader, optimizer, log_dir=Non
         # imshowheatmap(images[0], targets['heatmap'][0], 8)
 
         # compute output
-        with autocast(enabled=scaler is not None):
+        with autocast('cuda', enabled=scaler is not None):
             loss, loss_items = model(images,
                                      is_train=True,
                                      gpu=device,

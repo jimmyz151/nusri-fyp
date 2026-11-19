@@ -70,6 +70,13 @@ _C.DATASET.OUTPUT_SIZE = [4, 8, 16, 32]                     # Reduce factor w.r.
 # - Head-specific
 _C.DATASET.SIGMA = 2                                        # Heatmap Gaussian kernel parameter
 
+# - Heatmap encoding: UDP (sub-pixel)
+#   True : the training target is a Gaussian centered on the continuous keypoint
+#          position, and the decoder fits a 3-point parabola (sub-pixel).
+#   False: baseline, Gaussian centered on the truncated integer cell and decoded
+#          at the integer argmax.
+_C.DATASET.UDP = False
+
 # ------------------------------------------------------------------------------ #
 # Training-related parameters
 # ------------------------------------------------------------------------------ #

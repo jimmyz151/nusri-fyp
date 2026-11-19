@@ -118,7 +118,8 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
                         outputs[i].squeeze(0).cpu(),
                         cfg.DATASET.IMAGE_SIZE,
                         cfg.TEST.HEATMAP_THRESHOLD,
-                        camera, keypts_true_3D
+                        camera, keypts_true_3D,
+                        udp=cfg.DATASET.UDP
                     )
 
                     if not reject:
