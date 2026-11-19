@@ -77,7 +77,7 @@ class CoarseDropout(A.DualTransform):
         holes: Iterable[Tuple[int, int, int, int]] = (),
         **params
     ) -> np.ndarray:
-        fill_value = random.randint(0, 256)
+        fill_value = random.randint(0, 255)
         return cutout(img, holes, fill_value)
 
     def apply_to_mask(

@@ -12,7 +12,7 @@ import logging
 import random
 import time
 
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn.utils import clip_grad_norm_
 
 from utils.utils     import AverageMeter, ProgressMeter
@@ -67,7 +67,7 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
             images = style_augmentor(images)
 
         # Enable mixed-precision learning is scaler is provided
-        with autocast(enabled=scaler is not None):
+        with autocast('cuda', enabled=scaler is not None):
             loss, loss_items = model(images,
                                      is_train=True,
                                      gpu=device,
