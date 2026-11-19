@@ -5,7 +5,8 @@ Author: Tae Ha Park (tpark94@stanford.edu)
 '''
 
 from .efficientdet import EfficientDet
+from .convnext     import ConvNeXtBiFPN
 
 __all__ = [
-    'EfficientDet'
+    'EfficientDet', 'ConvNeXtBiFPN'
 ]
