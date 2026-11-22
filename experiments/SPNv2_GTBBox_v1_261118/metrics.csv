@@ -1,0 +1,17 @@
+domain,head,metric,value
+lightbox,heatmap,eR_deg,3.15358
+lightbox,heatmap,eT_m,0.08663
+lightbox,heatmap,eR_HIL_deg,0.05501
+lightbox,heatmap,eT_norm_HIL_m,0.01446
+lightbox,heatmap,pose,0.06948
+lightbox,heatmap,reject,1
+lightbox,segmentation,iou,0.92991
+lightbox,final,final_pose,0.06948
+sunlamp,heatmap,eR_deg,7.27956
+sunlamp,heatmap,eT_m,0.18261
+sunlamp,heatmap,eR_HIL_deg,0.12704
+sunlamp,heatmap,eT_norm_HIL_m,0.03138
+sunlamp,heatmap,pose,0.15842
+sunlamp,heatmap,reject,0
+sunlamp,segmentation,iou,0.90326
+sunlamp,final,final_pose,0.15842
