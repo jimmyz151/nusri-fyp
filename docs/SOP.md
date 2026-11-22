@@ -121,7 +121,17 @@ $PY src/tools/test.py --cfg $CFG EXP_NAME $EXP VERBOSE True \
   TEST.TEST_CSV sunlamp/labels/sunlamp.csv
 ```
 
+合成域（synthetic validation）：
+
+```bash
+CUDA_VISIBLE_DEVICES=$GPUS PYTHONUNBUFFERED=1 \
+$PY src/tools/test.py --cfg $CFG EXP_NAME $EXP VERBOSE True \
+  TEST.TEST_CSV synthetic/labels/validation.csv
+```
+
 进度显示 `Testing 001 [i/N] [Time] heat_eR effi_eT final_pose`，跑完打印 `Mean performance`。
+
+`experiments/<EXP_NAME>/metrics.csv` 必须包含合成域（`synthetic`）以及 `lightbox`、`sunlamp` 三个 domain 的结果。
 
 ## 7. 可视化
 
