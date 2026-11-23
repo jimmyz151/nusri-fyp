@@ -53,3 +53,15 @@ CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 \
 
 - 吞吐：双卡 bs8（全局 16）约 560 ms/iter，2997 iter/epoch，约 28 min/epoch
 - 环境：本机后台执行拿不到 GPU，必须前台运行
+
+## 合成域结果来源
+
+`metrics.csv` 中的 `synthetic` 块来自训练期验证日志，不是独立的全量测试：
+
+- 数据：`synthetic/labels/validation.csv`，训练期只取 `TRAIN.VALID_FRACTION=0.1`（约前 1,199 张）
+- 权重：`model_best.pth.tar` 对应的 best epoch（按合成域 `final_pose` 选优）
+- best epoch：20（2026/11/19 10:08:48）
+- 日志：`logs/SPNv2_GTBBox_v1_261118/train_20261118_19_35_05/train_rank0.log`
+- 可用指标：`heat_eR`、`final_pose`；该实验只有 heatmap + segmentation 两头，没有 `effi_eT`，也未记录 eT/HIL/IoU/reject/segm_iou，故 `synthetic` 行不完整
+- `final_pose` 定义：heatmap + segmentation 模型为 `heat_eR_HIL + heat_eT_norm_HIL`
+- 数值精度：日志保留 3 位小数

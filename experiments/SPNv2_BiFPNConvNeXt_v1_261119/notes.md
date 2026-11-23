@@ -100,3 +100,15 @@ sunlamp 同理替换 `TEST.TEST_CSV`。
 - 同期合成域：第 1 轮 `heat_eR` 应回到个位数（baseline 3.57°），第 8 轮接近 baseline 的 1.38°
 - 最终目标：超过 baseline 的 `final_pose`（lightbox 0.153 / sunlamp 0.270）
 - 观察 `segm_det_iou`、`ref_pose` 相对 `heat_pose` 的增益、`# fallback` 比例
+
+## 合成域结果来源
+
+`metrics.csv` 中的 `synthetic` 块来自训练期验证日志，不是独立的全量测试：
+
+- 数据：`synthetic/labels/validation.csv`，训练期只取 `TRAIN.VALID_FRACTION=0.1`（约前 1,199 张）
+- 权重：`model_best.pth.tar` 对应的 best epoch（按合成域 `final_pose` 选优）
+- best epoch：20（2026/11/20 16:24:07）
+- 日志：`logs/SPNv2_BiFPNConvNeXt_v1_261119/train_20261119_21_26_14/train_rank0.log`
+- 可用指标：`heat_eR`、`final_pose`；该实验只有 heatmap + segmentation 两头，没有 `effi_eT`，也未记录 eT/HIL/IoU/reject/segm_iou，故 `synthetic` 行不完整
+- `final_pose` 定义：heatmap + segmentation 模型为 `heat_eR_HIL + heat_eT_norm_HIL`
+- 数值精度：日志保留 3 位小数

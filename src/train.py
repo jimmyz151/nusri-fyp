@@ -139,6 +139,14 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
     # build network
     model = build_spnv2(cfg)
 
+    # 微调探针：冻结 ConvNeXt 特征提取器，只训练 neck / heads
+    if cfg.TRAIN.FREEZE_BACKBONE:
+        if not hasattr(model.backbone, 'features'):
+            raise NotImplementedError('FREEZE_BACKBONE 目前只支持 ConvNeXt 骨干')
+        for p in model.backbone.features.parameters():
+            p.requires_grad = False
+        logger.info('   - Backbone features frozen for fine-tuning')
+
     # GPU device
     if args.gpu is not None:
         torch.cuda.set_device(args.gpu)

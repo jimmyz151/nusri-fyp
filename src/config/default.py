@@ -98,6 +98,7 @@ _C.TRAIN.IMAGES_PER_GPU = 32                                # Batch size PER GPU
 _C.TRAIN.SHUFFLE        = True
 _C.TRAIN.WORKERS        = 4
 _C.TRAIN.AUGMENT_WORKERS = 4                                # 进程数，用于 style-first 的像素增强
+_C.TRAIN.FREEZE_BACKBONE = False                            # 微调探针：冻结骨干特征，只训练 neck/heads
 
 # - CSV files
 _C.TRAIN.TRAIN_CSV  = 'synthetic/splits/train.csv'
@@ -160,6 +161,7 @@ _C.ODR.IMAGES_PER_BATCH  = 4                                # Batch size for upd
 # ------------------------------------------------------------------------------ #
 _C.MODEL = CN()
 _C.MODEL.PRETRAIN_FILE     = None                           # Path to pre-trained model to load
+_C.MODEL.PRETRAIN_STRICT   = True                           # 是否严格匹配 PRETRAIN_FILE 的 state_dict
 _C.MODEL.EFFICIENTDET_PHI  = 0                              # EfficientNet scaling parameter
 _C.MODEL.FIND_UNUSED_PARAM = False                          # See find_unused_parameters argument of
                                                             # torch.nn.parallel.DistributedDataParallel
@@ -174,6 +176,7 @@ _C.MODEL.GROUPNORM_SIZE = 16                                # Group size in the 
 _C.MODEL.BACKBONE = CN()
 _C.MODEL.BACKBONE.NAME = 'efficientdet_d3'                  # Name of the backbone: 'efficientdet_d#'
 _C.MODEL.BACKBONE.PRETRAINED = None                         # Pre-trained model for the backbone only
+_C.MODEL.BACKBONE.USE_OUTPUT_LN = True                      # ConvNeXt: 是否在各级输出后加 LN 再送 BiFPN
 _C.MODEL.BACKBONE.EXTRA = CN(new_allowed=True)
 
 # - Heads
@@ -198,8 +201,12 @@ def update_config(cfg, args):
         assert 'efficientdet_d' in cfg.MODEL.BACKBONE.NAME, \
             "Only efficientdet's are supported at the moment."
         cfg.MODEL.BACKBONE.EXTRA = EFFICIENTDET_EXTRAS[cfg.MODEL.BACKBONE.NAME]
+    elif 'convnext_bifpn' in cfg.MODEL.BACKBONE.NAME:
+        # ConvNeXt-T 自带 96/192/384/768 通道表，无需 EXTRA
+        pass
     else:
-        raise AssertionError("Only efficientdet backbones are supported at the moment.")
+        raise AssertionError(
+            "Only efficientdet / convnext_bifpn backbones are supported at the moment.")
 
     # Full paths to auxiliary files
     cfg.DATASET.CAMERA    = join(cfg.DATASET.ROOT, cfg.DATASET.DATANAME, cfg.DATASET.CAMERA)

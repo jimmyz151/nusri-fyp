@@ -50,19 +50,23 @@ def get_scaled_parameters(phi):
     return parameters
 
 def _build_backbone(cfg):
-    """ Create EfficientDet backbone
+    """ Create backbone
 
         Args:
             cfg: Object containing configuration parameters
 
         Returns:
-            backbone: EfficientDet (EfficientNet + BiFPN) backbone network
+            backbone: SPNv2 backbone (EfficientNet / ConvNeXt + BiFPN)
     """
-    assert 'efficientdet' in cfg.MODEL.BACKBONE.NAME, \
-        'Only efficientdet backbone is supported at the moment'
-
     scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
-    backbone = EfficientDet(cfg, scaled_parameters)
+
+    if 'efficientdet' in cfg.MODEL.BACKBONE.NAME:
+        backbone = EfficientDet(cfg, scaled_parameters)
+    elif 'convnext_bifpn' in cfg.MODEL.BACKBONE.NAME:
+        backbone = ConvNeXtBiFPN(cfg, scaled_parameters)
+    else:
+        raise AssertionError(
+            f'Unsupported backbone: {cfg.MODEL.BACKBONE.NAME}')
 
     logger.info(f'   - Backbone: {cfg.MODEL.BACKBONE.NAME} (# param: {num_total_parameters(backbone):,d})')
 
@@ -226,7 +230,7 @@ def build_spnv2(cfg):
 
     if cfg.MODEL.PRETRAIN_FILE:
         load_dict = torch.load(cfg.MODEL.PRETRAIN_FILE, map_location='cpu')
-        net.load_state_dict(load_dict, strict=True)
+        net.load_state_dict(load_dict, strict=cfg.MODEL.PRETRAIN_STRICT)
 
         logger.info(f'   - Pretrained model loaded from {cfg.MODEL.PRETRAIN_FILE}')
 
