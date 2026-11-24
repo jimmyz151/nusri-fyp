@@ -17,22 +17,26 @@ class HeatmapGenerator():
     """ Adopted from the repository below:
     https://github.com/HRNet/HigherHRNet-Human-Pose-Estimation/blob/master/lib/dataset/target_generators/target_generators.py
     """
-    def __init__(self, output_res, num_keypts, sigma=-1):
+    def __init__(self, output_res, num_keypts, sigma=-1, udp=False):
         self.output_res = output_res # (W, H)
         self.num_keypts = num_keypts
+        self.udp        = udp
 
         if sigma < 0:
             # sigma = self.output_res/64
             logger.warning('Warning! Set sigma > 0 for heatmaps')
 
         self.sigma = sigma
-        size = 6*sigma + 3
-        x = np.arange(0, size, 1, float)
-        y = x[:, np.newaxis]
-        x0, y0 = 3*sigma + 1, 3*sigma + 1
 
-        # Gaussian kernel
-        self.g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
+        if not self.udp:
+            # Baseline: one integer-centered kernel, stamped at the truncated cell
+            size = 6*sigma + 3
+            x = np.arange(0, size, 1, float)
+            y = x[:, np.newaxis]
+            x0, y0 = 3*sigma + 1, 3*sigma + 1
+
+            # Gaussian kernel
+            self.g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
 
     def __call__(self, keypts):
         # keypts: [num_keypts, 2]
@@ -44,6 +48,30 @@ class HeatmapGenerator():
         sigma = self.sigma
 
         for idx, pt in enumerate(keypts):
+            if self.udp:
+                # Continuous peak location: the Gaussian is centered on the exact
+                # sub-pixel position so that the parabola decoding is unbiased.
+                cx = pt[0] * self.output_res[0]
+                cy = pt[1] * self.output_res[1]
+
+                if cx < 0 or cy < 0 or \
+                    cx >= self.output_res[0] or cy >= self.output_res[1]:
+                    continue
+
+                radius = int(np.round(3 * sigma + 1))
+                cc = max(0, int(np.floor(cx)) - radius)
+                dd = min(self.output_res[0], int(np.ceil(cx)) + radius + 1)
+                aa = max(0, int(np.floor(cy)) - radius)
+                bb = min(self.output_res[1], int(np.ceil(cy)) + radius + 1)
+
+                xs = np.arange(cc, dd, dtype=np.float32)[None, :]
+                ys = np.arange(aa, bb, dtype=np.float32)[:, None]
+
+                g = np.exp(- ((xs - cx) ** 2 + (ys - cy) ** 2) / (2 * sigma ** 2))
+
+                hms[idx, aa:bb, cc:dd] = np.maximum(hms[idx, aa:bb, cc:dd], g)
+                continue
+
             x = int(pt[0] * self.output_res[0]) # scale keypoint location
             y = int(pt[1] * self.output_res[1])
             if x < 0 or y < 0 or \

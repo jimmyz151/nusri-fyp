@@ -50,19 +50,27 @@ def get_scaled_parameters(phi):
     return parameters
 
 def _build_backbone(cfg):
-    """ Create EfficientDet backbone
+    """ Create the feature encoder
 
         Args:
             cfg: Object containing configuration parameters
 
         Returns:
-            backbone: EfficientDet (EfficientNet + BiFPN) backbone network
+            backbone: EfficientDet (EfficientNet + BiFPN) or ConvNeXt + BiFPN
     """
-    assert 'efficientdet' in cfg.MODEL.BACKBONE.NAME, \
-        'Only efficientdet backbone is supported at the moment'
-
-    scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
-    backbone = EfficientDet(cfg, scaled_parameters)
+    if 'convnext' in cfg.MODEL.BACKBONE.NAME:
+        assert 'bifpn' in cfg.MODEL.BACKBONE.NAME, \
+            'ConvNeXt must be built with the BiFPN neck (convnext_bifpn_*)'
+        scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
+        backbone = ConvNeXtBiFPN(cfg, scaled_parameters)
+    elif 'efficientdet' in cfg.MODEL.BACKBONE.NAME:
+        scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
+        backbone = EfficientDet(cfg, scaled_parameters)
+        backbone.head_in_channels = scaled_parameters['bifpn_width']
+    else:
+        raise AssertionError(
+            'Only efficientdet and convnext backbones are supported at the moment'
+        )
 
     logger.info(f'   - Backbone: {cfg.MODEL.BACKBONE.NAME} (# param: {num_total_parameters(backbone):,d})')
 
@@ -72,12 +80,13 @@ def _build_backbone(cfg):
 
     return backbone
 
-def _build_heads(cfg):
+def _build_heads(cfg, in_channels):
     """ Build head networks based on the configuration. Individual head networks
         take input from the output of the backbone network.
 
     Args:
         cfg ([type]): Object containing configuration parameters
+        in_channels (int): Number of channels of the backbone feature map fed to heads
 
     Returns:
         heads: nn.ModuleList of head networks
@@ -89,7 +98,7 @@ def _build_heads(cfg):
     # Create heads
     for i, name in enumerate(cfg.MODEL.HEAD.NAMES):
         if name == 'heatmap':
-            head = HeatmapHead(scaled_parameters['bifpn_width'],
+            head = HeatmapHead(in_channels,
                                scaled_parameters['subnet_depth'],
                                cfg.DATASET.NUM_KEYPOINTS,
                                cfg.MODEL.USE_GROUPNORM_HEADS,
@@ -97,14 +106,14 @@ def _build_heads(cfg):
 
         elif name == 'efficientpose':
             head = EfficientPoseHead(cfg,
-                                     scaled_parameters['bifpn_width'],
+                                     in_channels,
                                      scaled_parameters['subnet_depth'],
                                      scaled_parameters['subnet_num_iteration_steps'],
                                      cfg.MODEL.USE_GROUPNORM_HEADS,
                                      scaled_parameters['num_groups_gn'])
 
         elif name == 'segmentation':
-            head = SegmentationHead(scaled_parameters['bifpn_width'],
+            head = SegmentationHead(in_channels,
                                     scaled_parameters['subnet_depth'],
                                     cfg.MODEL.USE_GROUPNORM_HEADS,
                                     cfg.MODEL.GROUPNORM_SIZE)
@@ -139,7 +148,7 @@ class SPNv2(nn.Module):
         self.backbone = _build_backbone(cfg)
 
         # Build task-specific heads
-        self.heads      = _build_heads(cfg)
+        self.heads      = _build_heads(cfg, self.backbone.head_in_channels)
         self.head_names = cfg.MODEL.HEAD.NAMES
 
         # Which heads to compute loss?

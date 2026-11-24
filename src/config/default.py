@@ -70,6 +70,27 @@ _C.DATASET.OUTPUT_SIZE = [4, 8, 16, 32]                     # Reduce factor w.r.
 # - Head-specific
 _C.DATASET.SIGMA = 2                                        # Heatmap Gaussian kernel parameter
 
+# - Heatmap encoding: UDP (sub-pixel)
+#   True : the training target is a Gaussian centered on the continuous keypoint
+#          position, and the decoder fits a 3-point parabola (sub-pixel).
+#   False: baseline, Gaussian centered on the truncated integer cell and decoded
+#          at the integer argmax.
+_C.DATASET.UDP = False
+
+# - Detection-error-simulated crop (training only)
+#   When enabled, a sample is cropped around its GT box (from the ORIGINAL image)
+#   with jitter that mimics mask-head detection errors, then resized to INPUT_SIZE.
+_C.DATASET.CROP = CN()
+_C.DATASET.CROP.ENABLE       = False   # Use mixed full-frame + crop training
+_C.DATASET.CROP.PROB         = 0.5     # Probability of the crop branch (~1:1 mix)
+_C.DATASET.CROP.EXPAND       = 1.2     # Window expansion w.r.t. the GT box
+_C.DATASET.CROP.JITTER_SHIFT = 0.1     # Center error U[+-x] * window height
+_C.DATASET.CROP.JITTER_SIDE  = 0.15    # Scale error U[1-x, 1+x]
+_C.DATASET.CROP.SEVERE_PROB  = 0.075   # Fraction of crop samples with severe offset
+_C.DATASET.CROP.SEVERE_SHIFT = 0.4     # Severe center offset U[0.25, x] * window height
+_C.DATASET.CROP.SEVERE_SCALE = [0.6, 1.4]
+_C.DATASET.CROP.MIN_SIDE     = 64      # Minimum window height [px] in the original image
+
 # ------------------------------------------------------------------------------ #
 # Training-related parameters
 # ------------------------------------------------------------------------------ #
@@ -141,6 +162,9 @@ _C.TEST.IMAGES_PER_GPU = 1                                  # Batch size (only 1
 _C.TEST.HEAD = ['heatmap']                                  # Which prediction heads to evaluate?
 _C.TEST.HEATMAP_THRESHOLD = 0.5                             # Keypoints detection threshold
 _C.TEST.BBOX_THRESHOLD    = 0.5                             # Bounding box detection threshold
+_C.TEST.MASK_THRESHOLD    = 0.5                             # Foreground threshold for mask-based detection
+_C.TEST.CROP_REFINE       = False                           # Two-stage: crop with the mask box, run again
+_C.TEST.CROP_EXPAND       = 1.2                             # Stage-2 crop expansion
 _C.TEST.TEST_CSV = 'lightbox/splits/lightbox.csv'           # CSV file to containing images to test on
 
 # - Thresholds for SPEED metric (SPEED+ lightbox, sunlamp)
@@ -198,8 +222,11 @@ def update_config(cfg, args):
         assert 'efficientdet_d' in cfg.MODEL.BACKBONE.NAME, \
             "Only efficientdet's are supported at the moment."
         cfg.MODEL.BACKBONE.EXTRA = EFFICIENTDET_EXTRAS[cfg.MODEL.BACKBONE.NAME]
+    elif 'convnext' in cfg.MODEL.BACKBONE.NAME:
+        # ConvNeXt backbones need no EXTRAS (channels are fixed by torchvision)
+        pass
     else:
-        raise AssertionError("Only efficientdet backbones are supported at the moment.")
+        raise AssertionError("Only efficientdet and convnext backbones are supported at the moment.")
 
     # Full paths to auxiliary files
     cfg.DATASET.CAMERA    = join(cfg.DATASET.ROOT, cfg.DATASET.DATANAME, cfg.DATASET.CAMERA)

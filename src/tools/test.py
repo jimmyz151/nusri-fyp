@@ -89,7 +89,8 @@ def main(cfg):
                      keypts_true_3D,
                      valid_fraction=None,
                      log_dir=result_dir,
-                     device=device)
+                     device=device,
+                     allow_refine=True)
 
 if __name__=='__main__':
     main(cfg)

@@ -236,7 +236,8 @@ def main():
             # 与 do_valid 相同：热力图坐标先还原到 IMAGE_SIZE 再解 PnP。
             _, quaternion, _, rejected = solve_pose_from_heatmaps(
                 heatmap[0].cpu(), cfg.DATASET.IMAGE_SIZE,
-                cfg.TEST.HEATMAP_THRESHOLD, camera, keypoints
+                cfg.TEST.HEATMAP_THRESHOLD, camera, keypoints,
+                udp=cfg.DATASET.UDP
             )
             q_gt = target["quaternion"].numpy()
             t_gt = target["translation"].numpy()

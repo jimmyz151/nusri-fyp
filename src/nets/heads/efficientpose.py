@@ -487,7 +487,7 @@ class EfficientPoseHead(nn.Module):
 
         # Post-processing and loss computation are done in float32
         # since using FP16 here causes worse loss convergence ...
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast('cuda', enabled=False):
 
             # Cast the outputs to float from half
             classification  = classification.float()
