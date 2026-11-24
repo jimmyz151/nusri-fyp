@@ -137,6 +137,7 @@
 
 - e5~e12 仍在明显不稳定区间，e16 后才进入正常量级；**v3 对 epoch 选择敏感**，需要依赖 best checkpoint 或更稳的 warmup/LR。
 - 同一权重在全量 sunlamp 上为 eR 16.48 / final 0.3479，400 子集更容易（14.96 / 0.3146）。
+- 产物统一收在主干实验目录下：结果 `results/tables/SPNv2_BiFPNConvNeXt_v3_261123/ladder/e{05,08,12,16,20}/sunlamp/`，日志 `logs/SPNv2_BiFPNConvNeXt_v3_261123/ladder/e{05,08,12,16,20}/`，逐 epoch 指标 `experiments/SPNv2_BiFPNConvNeXt_v3_261123/epoch_ladder.csv`。
 
 ### 4.6 GTBBox 裁剪框敏感性（lightbox / sunlamp 各 400 张）
 
@@ -189,6 +190,6 @@
 | ConvNeXt v2 | `results/tables/SPNv2_BiFPNConvNeXt_v2_261122/{lightbox,sunlamp}/` | |
 | ConvNeXt v2 探针 | 记录 `experiments/probes/{sub400,probe_ctl,probe_noln,probe_bnneck,v1_recheck_probe400}/`；结果按各自 EXP_NAME 在 `results/tables/` | 同一 400 张 sunlamp 子集 |
 | ConvNeXt v3 | `results/tables/SPNv2_BiFPNConvNeXt_v3_261123/{lightbox,sunlamp}/` | model_final |
-| ConvNeXt v3 ladder | `results/tables/SPNv2_BiFPNConvNeXt_v3_261123_ladder_e{05,08,12,16,20}/sunlamp/` | 400 子集 |
+| ConvNeXt v3 ladder | `results/tables/SPNv2_BiFPNConvNeXt_v3_261123/ladder/e{05,08,12,16,20}/sunlamp/` | 400 子集；日志在 `logs/SPNv2_BiFPNConvNeXt_v3_261123/ladder/e{05,08,12,16,20}/` |
 | 失败可视化 | `results/visualizations/<EXP>/longtail_failures.{png,pdf}` | baseline / GTBBox / UDP v1 / UDP v2 / official / v1 s1 / v1 s1_fullframe |
 | 裁剪框敏感性 | `results/tables/SPNv2_GTBBox_v1_261118/probes/box_sensitivity/{lightbox,sunlamp}_{summary,per_sample}.csv` | 各 400 张全量 |
