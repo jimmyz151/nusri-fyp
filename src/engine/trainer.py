@@ -12,7 +12,7 @@ import logging
 import random
 import time
 
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn.utils import clip_grad_norm_
 
 from utils.utils     import AverageMeter, ProgressMeter
@@ -42,7 +42,7 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
         len(data_loader),
         batch_time,
         list(loss_meters.values()),
-        prefix="Training {:03d} ".format(epoch+1))
+        prefix="Epoch {:02d}/{:02d} train".format(epoch+1, cfg.TRAIN.END_EPOCH))
 
     # switch to train mode
     model.train()
@@ -67,7 +67,7 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
             images = style_augmentor(images)
 
         # Enable mixed-precision learning is scaler is provided
-        with autocast(enabled=scaler is not None):
+        with autocast('cuda', enabled=scaler is not None):
             loss, loss_items = model(images,
                                      is_train=True,
                                      gpu=device,
@@ -101,8 +101,11 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
         # Report progress to console
         if rank == 0:
             if cfg.VERBOSE:
-                progress.display(idx)
+                progress.display(idx+1)
             if idx+1 == len(data_loader):
                 progress.display_summary()
 
     # TODO: tensorboard logging
+
+    return ({name: float(meter.avg) for name, meter in loss_meters.items()},
+            float(batch_time.avg))

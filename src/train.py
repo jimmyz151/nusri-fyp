@@ -11,11 +11,18 @@ from __future__ import print_function
 import os
 import os.path as osp
 import argparse
+import csv
+import time
 import warnings
 
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except Exception:  # tensorboard 未安装时也不影响训练
+    SummaryWriter = None
 
 from config import cfg, update_config
 from nets import build_spnv2
@@ -28,6 +35,67 @@ from utils.utils import (
     set_seeds_cudnn, setup_logger, create_logger_directories,
     write_model_info, load_camera_intrinsics, load_tango_3d_keypoints,
 )
+
+# 已知无害的告警：DDP 对 1x1 卷积梯度的 stride 提示，以及 DataLoader 退出时的信号量提示
+warnings.filterwarnings('ignore', message=r'.*Grad strides do not match bucket view strides.*')
+warnings.filterwarnings('ignore', message=r'.*leaked semaphore objects.*')
+
+PROBE_FIELDS = [
+    'epoch', 'heat_eR', 'heat_eT', 'heat_eR_HIL', 'heat_eT_norm_HIL', 'heat_pose',
+    'effi_eR', 'effi_eT', 'effi_pose', 'segm_iou', 'reject', 'heat_fail30',
+    'heat_median_eR', 'final_pose',
+]
+
+
+def _tb_add(writer, tag, value, step):
+    """TensorBoard 写入必须永远不抛出异常，避免监控影响训练。"""
+    if writer is None or value is None:
+        return
+    try:
+        writer.add_scalar(tag, float(value), int(step))
+    except Exception:
+        pass
+
+
+def _tb_config_text(cfg):
+    heads = cfg.MODEL.HEAD.NAMES
+    return '\n'.join([
+        f'backbone: {cfg.MODEL.BACKBONE.NAME}',
+        f'heads: {heads}',
+        f'neck_norm: {"GN" if cfg.MODEL.USE_GROUPNORM_BACKBONE else "BN"}',
+        f'output_ln: {cfg.MODEL.BACKBONE.USE_OUTPUT_LN}',
+        f'lr: {cfg.TRAIN.LR}',
+        f'lr_step: {cfg.TRAIN.LR_STEP}',
+        f'epochs: {cfg.TRAIN.END_EPOCH}',
+        f'batch_per_gpu: {cfg.TRAIN.IMAGES_PER_GPU}',
+        f'syncbn: {getattr(cfg.DIST, "SYNCBN", True)}',
+    ])
+
+
+def _append_probe_csv(path, epoch, metrics):
+    """只写标量指标，不保存权重/预测/逐样本文件；失败静默。"""
+    try:
+        os.makedirs(osp.dirname(path), exist_ok=True)
+        done = set()
+        if osp.exists(path):
+            with open(path, newline='') as f:
+                for row in csv.DictReader(f):
+                    try:
+                        done.add(int(row.get('epoch', -1)))
+                    except (TypeError, ValueError):
+                        pass
+        if epoch in done:
+            return
+        exists = osp.exists(path)
+        with open(path, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=PROBE_FIELDS)
+            if not exists:
+                writer.writeheader()
+            row = {k: metrics.get(k, '') for k in PROBE_FIELDS}
+            row['epoch'] = epoch
+            writer.writerow(row)
+    except Exception:
+        pass
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train SPNv2')
@@ -85,6 +153,10 @@ def main(cfg):
     if args.multiprocessing_distributed:
         # Adjust world_size
         args.world_size = ngpus_per_node * args.world_size
+
+        # 子进程退出时 multiprocessing 会打印一条无害的泄漏信号量提示，这里通过环境变量静默它
+        os.environ.setdefault(
+            'PYTHONWARNINGS', 'ignore::UserWarning:multiprocessing.resource_tracker')
 
         # Spawn distributed processes
         mp.spawn(
@@ -181,6 +253,23 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
     if args.rank == 0:
         write_model_info(model.module if args.distributed else model, log_dir)
 
+    # TensorBoard：仅 rank 0；任何失败都只告警，不影响训练
+    tb_writer = None
+    if args.rank == 0 and cfg.TRAIN.TENSORBOARD:
+        if SummaryWriter is None:
+            logger.warning('TensorBoard disabled: tensorboard is not installed')
+        else:
+            try:
+                tb_dir = osp.join(cfg.ROOT, 'results', 'tensorboard', cfg.EXP_NAME)
+                os.makedirs(tb_dir, exist_ok=True)
+                open(osp.join(tb_dir, 'LIVE'), 'w').close()
+                tb_writer = SummaryWriter(tb_dir)
+                tb_writer.add_text('config/key_params', _tb_config_text(cfg))
+                logger.info(f'   - TensorBoard logging to {tb_dir}')
+            except Exception as e:
+                logger.warning(f'TensorBoard disabled: {e}')
+                tb_writer = None
+
     # Dataloaders
     train_loader = get_dataloader(cfg,
                                   split='train',
@@ -191,12 +280,31 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
                                   distributed=args.distributed,
                                   load_labels=True)
 
+    # 训练内 probe（目标域小子集，仅监控；失败不影响训练）
+    probe_loader = None
+    probe_cfg = None
+    if cfg.TEST.PROBE_ENABLE and args.rank == 0:
+        try:
+            probe_cfg = cfg.clone()
+            probe_cfg.defrost()
+            probe_cfg.TEST.TEST_CSV = cfg.TEST.PROBE_CSV
+            probe_cfg.TEST.IMAGES_PER_GPU = 1
+            probe_cfg.freeze()
+            probe_loader = get_dataloader(probe_cfg, split='test',
+                                          distributed=False, load_labels=True)
+            logger.info('   - Probe enabled: {} (every {} epoch(s))'
+                        .format(cfg.TEST.PROBE_CSV, cfg.TEST.PROBE_FREQ))
+        except Exception as e:
+            logger.warning(f'Probe disabled: {e}')
+            probe_loader = None
+
     # Optimizer & scaler for mixed-precision training
     optimizer = get_optimizer(cfg, model)
     scaler    = get_scaler(cfg) # None if cfg.FP16 = False, cfg.CUDA = False
 
     # Online style randomization (SPEED+ baseline setting: new style every batch)
     style_augmentor = None
+    style_pipeline  = None
     if cfg.AUGMENT.ONLINE_TEXTURE:
         from utils.style_augment import OnlineStyleAugmentor
         style_augmentor = OnlineStyleAugmentor(cfg.AUGMENT.RANDOM_TEXTURE.ALPHA, device)
@@ -239,14 +347,15 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
     # ---------------------------------------
     score   = best_score
     is_best = False
+    probe_csv = osp.join(cfg.ROOT, 'experiments', 'probes', cfg.EXP_NAME, 'online_probe.csv')
     for epoch in range(begin_epoch, cfg.TRAIN.END_EPOCH):
-        print('')
-
         # Learning rate adjustment
         adjust_learning_rate(optimizer, epoch, cfg)
+        _tb_add(tb_writer, 'opt/lr', optimizer.param_groups[0]['lr'], epoch+1)
 
         # Single epoch training
-        do_train(epoch,
+        t_epoch = time.time()
+        train_losses, ms_per_batch = do_train(epoch,
                  cfg,
                  model,
                  train_loader,
@@ -256,11 +365,15 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
                  scaler=scaler,
                  rank=args.rank,
                  style_augmentor=style_augmentor)
+        _tb_add(tb_writer, 'perf/epoch_seconds', time.time() - t_epoch, epoch+1)
+        _tb_add(tb_writer, 'perf/ms_per_batch', ms_per_batch, epoch+1)
+        for name, value in train_losses.items():
+            _tb_add(tb_writer, f'train/{name}', value, epoch+1)
 
         if not args.distributed or (args.distributed and args.rank == 0):
             # Validate on the fraction of dataset
             if (epoch+1) % cfg.TRAIN.VALID_FREQ == 0:
-                score = do_valid(epoch,
+                score, val_metrics = do_valid(epoch,
                                  cfg,
                                  model,
                                  val_loader,
@@ -268,13 +381,56 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
                                  keypts_true_3D,
                                  valid_fraction=cfg.TRAIN.VALID_FRACTION,
                                  log_dir=None,
-                                 device=device)
+                                 device=device,
+                                 save_artifacts=False,
+                                 return_metrics=True)
+                for name, value in val_metrics.items():
+                    _tb_add(tb_writer, f'val/{name}', value, epoch+1)
 
                 if score < best_score:
                     best_score = score
                     is_best = True
                 else:
                     is_best = False
+
+            # 训练内 probe：只记录指标，不保存权重/预测；失败不影响训练，也不自动中止
+            if probe_loader is not None and (epoch+1) % max(1, cfg.TEST.PROBE_FREQ) == 0:
+                try:
+                    free_mb = (torch.cuda.mem_get_info(device)[0] / (1024 ** 2)
+                               if device.type == 'cuda' else float('inf'))
+                    if free_mb < cfg.TEST.PROBE_MIN_FREE_MB:
+                        logger.warning('Probe skipped at epoch %d: only %.0f MB free',
+                                       epoch+1, free_mb)
+                    else:
+                        _, probe_metrics = do_valid(epoch,
+                                                    probe_cfg,
+                                                    model,
+                                                    probe_loader,
+                                                    camera,
+                                                    keypts_true_3D,
+                                                    valid_fraction=None,
+                                                    log_dir=None,
+                                                    device=device,
+                                                    phase='Probe',
+                                                    save_artifacts=False,
+                                                    return_metrics=True,
+                                                    show_progress=False)
+                        _append_probe_csv(probe_csv, epoch+1, probe_metrics)
+                        for name, value in probe_metrics.items():
+                            _tb_add(tb_writer, f'probe/{name}', value, epoch+1)
+                        logger.info('Probe %02d: final_pose %.4f | eR %.2f deg | eT %.3f m',
+                                    epoch+1,
+                                    probe_metrics.get('final_pose', float('nan')),
+                                    probe_metrics.get('heat_eR', float('nan')),
+                                    probe_metrics.get('heat_eT', float('nan')))
+                except Exception as e:
+                    logger.warning('Probe failed at epoch %d: %s', epoch+1, e)
+                    try:
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                finally:
+                    model.train()
 
             # Save
             save_checkpoint({
@@ -287,6 +443,18 @@ def main_worker(gpu, ngpus_per_node, args, output_dir, log_dir):
                 'optimizer': optimizer.state_dict(),
                 'scaler': scaler.state_dict() if scaler is not None else None
             }, is_best, epoch+1==cfg.TRAIN.END_EPOCH, output_dir)
+
+    if tb_writer is not None:
+        try:
+            tb_writer.flush()
+            tb_writer.close()
+        except Exception:
+            pass
+
+    # 训练结束后显式关闭增强进程池：其子进程是非 daemon，解释器退出时会一直 join，
+    # 导致训练跑完后进程不退出并继续占用显存
+    if style_pipeline is not None:
+        style_pipeline.close()
 
 if __name__=='__main__':
     main(cfg)

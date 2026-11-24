@@ -26,6 +26,8 @@
 
 ## 复现
 
+> 注意：GT 框裁剪的旧实现已随废弃代码删除；下列命令与 `config.yaml` 仅保留实验记录，当前代码无法直接重跑。
+
 ```bash
 cd /opt/data/private/speNet
 CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 MPLCONFIGDIR=/tmp/mpl \
@@ -47,7 +49,7 @@ CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 \
 
 - 上界口径（GT 框）：与 `SPNv2_baseline_v1_261113` 的 heat 头比较；注意 baseline 是三头训练，存在多任务差异
 - 几何下限（GT 关键点直接解码）：0.06 px / eR 0.03° / eT 0.0004 m，若实测远离该值即为网络误差而非坐标变换误差
-- 尚无检测器，本轮不给部署绝对值；框误差敏感性留待 P1 合成扰动扫描
+- 尚无检测器，本轮不给部署绝对值；框误差敏感性已完成 400 张全量扫描，见 `results/tables/SPNv2_GTBBox_v1_261118/probes/box_sensitivity/`
 
 ## 备注
 

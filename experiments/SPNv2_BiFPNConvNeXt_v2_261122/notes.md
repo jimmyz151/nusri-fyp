@@ -81,3 +81,18 @@ sunlamp / 合成域同理替换 `TEST.TEST_CSV` 为 `sunlamp/labels/sunlamp.csv`
 - 同期合成域：第 1 轮 `heat_eR` 应回到个位数（baseline 3.57°），第 8 轮接近 baseline 的 1.38°
 - 真实域目标：超过 baseline 的 `final_pose`（lightbox 0.153 / sunlamp 0.270）
 - 同时观察 `effi_iou`、`segm_iou` 与 `heat_eR` 是否同步正常收敛，判断 LN → GN 桥接是否稳定
+
+## 探针实验（已归档到 `probes/`）
+
+所有探针从本实验 best 出发，冻结 ConvNeXt，只训练 neck / heads 1 epoch，统一在 `sunlamp/labels/sunlamp_probe400.csv`（400 张）上评测。
+
+| 子实验 | 改动 | final_pose（400 子集） | 记录 |
+| --- | --- | ---: | --- |
+| `probes/sub400` | 本实验原模型对照 | 0.36260 | `experiments/probes/sub400/` |
+| `probes/probe_ctl` | 仅额外微调 1 epoch | 0.36731 | `experiments/probes/probe_ctl/` |
+| `probes/probe_noln` | 去掉 4 个输出 LayerNorm | 0.39907 | `experiments/probes/probe_noln/` |
+| `probes/probe_bnneck` | BiFPN GroupNorm → BatchNorm | 0.49444 | `experiments/probes/probe_bnneck/` |
+| `probes/v1_recheck_probe400` | v1 stage-1 在同一子集复核 | 0.22675 | `experiments/probes/v1_recheck_probe400/` |
+
+产物路径：探针记录统一放 `experiments/probes/<子实验>/`；训练/测试日志 `logs/<子实验 EXP_NAME>/`，结果 `results/tables/<子实验 EXP_NAME>/`，权重 `checkpoints/<子实验 EXP_NAME>/`。不再放在本实验目录下。
+

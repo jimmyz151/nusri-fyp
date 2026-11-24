@@ -35,7 +35,7 @@ def build_dataset(cfg, split='train', load_labels=True):
         for h in cfg.MODEL.HEAD.LOSS_HEADS:
             if h == 'heatmap': g = HeatmapGenerator(
                 [int(in_size/cfg.DATASET.OUTPUT_SIZE[0]) for in_size in cfg.DATASET.INPUT_SIZE],
-                cfg.DATASET.NUM_KEYPOINTS, cfg.DATASET.SIGMA
+                cfg.DATASET.NUM_KEYPOINTS, cfg.DATASET.SIGMA, udp=cfg.DATASET.UDP
             )
             else:
                 g = None

@@ -1,0 +1,9 @@
+domain,head,metric,value
+sunlamp,heatmap,eR_deg,10.87049
+sunlamp,heatmap,eT_m,0.23567
+sunlamp,heatmap,eR_HIL_deg,0.18973
+sunlamp,heatmap,eT_norm_HIL_m,0.03703
+sunlamp,heatmap,pose,0.22675
+sunlamp,heatmap,reject,0
+sunlamp,segmentation,iou,0.85473
+sunlamp,final,final_pose,0.22675

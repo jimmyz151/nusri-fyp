@@ -1,11 +1,6 @@
-# Stage-2 (final) of SPNv2_BiFPNConvNeXt_v1_261119:
-#   Same ConvNeXt-T + BiFPN model, trained on a 1:1 mix of full-frame images and
-#   detection-error-simulated crops cut from the ORIGINAL images.
-#   Initialized from the stage-1 checkpoint.
-#
-# CROP.JITTER_SHIFT / JITTER_SIDE are filled from experiments/<EXP>/bbox_error_stats.csv
-# after stage-1 (conservative envelope: clip(ceil(p95, 0.05), 0.10, 0.30) and
-# clip(ceil(p95 side deviation, 0.05), 0.15, 0.35)).
+# Stage-1 of SPNv2_BiFPNConvNeXt_v1_261119:
+#   ConvNeXt-T + original BiFPN neck, heatmap/segmentation heads only (no detector).
+#   BiFPN takes ConvNeXt C2~C5 and produces P2~P7; heads read the fused P2.
 OUTPUT_DIR: 'checkpoints'
 LOG_DIR: 'logs'
 SEED: 2021
@@ -36,16 +31,7 @@ DATASET:
   NUM_ANCHORS: 9
   SIGMA: 2
   UDP: True
-  CROP:
-    ENABLE: True
-    PROB: 0.5
-    EXPAND: 1.2
-    JITTER_SHIFT: 0.1
-    JITTER_SIDE: 0.15
-    SEVERE_PROB: 0.075
-    SEVERE_SHIFT: 0.4
-    SEVERE_SCALE: [0.6, 1.4]
-    MIN_SIDE: 64
+  # stage-2 裁剪相关选项已随废弃代码删除（本配置为 stage-1，不启用裁剪）
 AUGMENT:
   P: 0.5
   APPLY_TEXTURE_RANDOMIZATION: False
@@ -82,9 +68,7 @@ TEST:
   HEAD: ['heatmap', 'segmentation']
   BBOX_THRESHOLD: 0.0
   HEATMAP_THRESHOLD: 0.5
-  MASK_THRESHOLD: 0.5
-  CROP_REFINE: True
-  CROP_EXPAND: 1.2
+  # 两阶段裁剪推理（MASK_THRESHOLD / CROP_REFINE / CROP_EXPAND）已随废弃代码删除
   SPEED_THRESHOLD_Q: 0.169
   SPEED_THRESHOLD_T: 2.173e-3
 MODEL:
@@ -102,4 +86,3 @@ MODEL:
   GROUPNORM_SIZE: 16
   # Two heads read P2 only; the BiFPN bottom-up (P3~P7) branches have no loss path
   FIND_UNUSED_PARAM: True
-  PRETRAIN_FILE: 'checkpoints/SPNv2_BiFPNConvNeXt_v1_261119/stage1_model_best.pth.tar'

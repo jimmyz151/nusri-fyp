@@ -69,6 +69,8 @@ _C.DATASET.OUTPUT_SIZE = [4, 8, 16, 32]                     # Reduce factor w.r.
 
 # - Head-specific
 _C.DATASET.SIGMA = 2                                        # Heatmap Gaussian kernel parameter
+_C.DATASET.UDP   = False                                    # Unbiased data processing: sub-pixel
+                                                            # heatmap target & parabola decoding
 
 # ------------------------------------------------------------------------------ #
 # Training-related parameters
@@ -99,6 +101,9 @@ _C.TRAIN.SHUFFLE        = True
 _C.TRAIN.WORKERS        = 4
 _C.TRAIN.AUGMENT_WORKERS = 4                                # 进程数，用于 style-first 的像素增强
 _C.TRAIN.FREEZE_BACKBONE = False                            # 微调探针：冻结骨干特征，只训练 neck/heads
+
+# - TensorBoard (rank 0 only, results/tensorboard/<EXP_NAME>; failure never stops training)
+_C.TRAIN.TENSORBOARD = True
 
 # - CSV files
 _C.TRAIN.TRAIN_CSV  = 'synthetic/splits/train.csv'
@@ -147,6 +152,12 @@ _C.TEST.TEST_CSV = 'lightbox/splits/lightbox.csv'           # CSV file to contai
 # - Thresholds for SPEED metric (SPEED+ lightbox, sunlamp)
 _C.TEST.SPEED_THRESHOLD_Q = 0.169    # [deg]
 _C.TEST.SPEED_THRESHOLD_T = 2.173e-3 # [m/m]
+
+# - In-training probe on a target-domain subset (monitoring only; never stops training)
+_C.TEST.PROBE_ENABLE = True
+_C.TEST.PROBE_CSV = 'sunlamp/labels/sunlamp_probe400.csv'   # w.r.t. DATASET.ROOT/DATANAME
+_C.TEST.PROBE_FREQ = 4                                      # run every N epochs
+_C.TEST.PROBE_MIN_FREE_MB = 1024                            # skip probe if GPU free memory is below this
 
 # ------------------------------------------------------------------------------ #
 # ODR-related parameters

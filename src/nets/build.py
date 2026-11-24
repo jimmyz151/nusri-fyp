@@ -72,7 +72,6 @@ def _build_backbone(cfg):
 
     if cfg.MODEL.USE_GROUPNORM_BACKBONE:
         logger.info(f'   - GroupNorm built for backbone')
-        logger.info(f'   - Pretrained model loaded from {cfg.MODEL.BACKBONE.PRETRAINED}')
 
     return backbone
 

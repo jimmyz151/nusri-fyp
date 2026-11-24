@@ -21,7 +21,19 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------
 # Heatmap post-processing
 # -----------------------------------------------------------------------
-def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D):
+def _parabola_offset(values, idx):
+    """Sub-pixel offset of the parabola vertex through values[idx-1:idx+2]."""
+    if idx <= 0 or idx >= len(values) - 1:
+        return 0.0
+
+    left, center, right = float(values[idx-1]), float(values[idx]), float(values[idx+1])
+    denom = left - 2.0 * center + right
+    if abs(denom) < 1e-8:
+        return 0.0
+
+    return max(-0.5, min(0.5, 0.5 * (left - right) / denom))
+
+def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D, udp=False):
     # heatmaps: [Nk x H x W]
     nK, nH, nW = heatmaps.shape
 
@@ -47,8 +59,16 @@ def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_tru
             if k in visibleIdx:
                 y = torch.floor(maxInd[k] / nW)
                 x = maxInd[k] - nW * y
-                keypts[k,0] = x / nW * image_size[0]
-                keypts[k,1] = y / nH * image_size[1]
+                xi, yi = int(x), int(y)
+                xf, yf = float(xi), float(yi)
+
+                # Parabola sub-pixel refinement around the integer peak
+                if udp:
+                    xf += _parabola_offset(heatmaps[k, yi, :], xi)
+                    yf += _parabola_offset(heatmaps[k, :, xi], yi)
+
+                keypts[k,0] = xf / nW * image_size[0]
+                keypts[k,1] = yf / nH * image_size[1]
 
         # PnP
         q, t = pnp(keypts_true_3D[visibleIdx], keypts[visibleIdx].numpy(),

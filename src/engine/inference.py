@@ -13,6 +13,7 @@ import logging
 import time
 from scipy.io import savemat
 
+import numpy as np
 import torch
 
 from utils.utils       import AverageMeter, ProgressMeter
@@ -33,7 +34,15 @@ def _get_metric_unit(name):
     return unit
 
 def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
-                valid_fraction=None, log_dir=None, device=torch.device('cpu')):
+                valid_fraction=None, log_dir=None, device=torch.device('cpu'),
+                phase='Validation', save_artifacts=True, return_metrics=False,
+                show_progress=True):
+    """Evaluate a model.
+
+    save_artifacts=False 时不保留逐样本预测/不写任何 .mat/.txt，只做指标聚合，
+    用于训练内验证和 probe（降低内存与磁盘开销）。
+    return_metrics=True 时返回 (final_pose, metrics_dict)。
+    """
 
     batch_time = AverageMeter('', 'ms', ':6.1f')
     data_time  = AverageMeter('', 'ms', ':6.1f')
@@ -70,11 +79,13 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
             'valid_fraction must be within (0, 1]'
         num_batches = int(len(data_loader) * valid_fraction)
 
+    prefix = "{} {:02d}/{:02d}".format(phase, epoch+1, cfg.TRAIN.END_EPOCH) \
+                 if phase == 'Validation' else phase
     progress = ProgressMeter(
         num_batches,
         batch_time,
         [v for k, v in metrics.items() if k in ['heat_eR', 'effi_eT', 'final_pose']],
-        prefix="Testing {:03d} ".format(epoch+1))
+        prefix=prefix)
 
     # switch to eval mode
     model.eval()
@@ -118,7 +129,8 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
                         outputs[i].squeeze(0).cpu(),
                         cfg.DATASET.IMAGE_SIZE,
                         cfg.TEST.HEATMAP_THRESHOLD,
-                        camera, keypts_true_3D
+                        camera, keypts_true_3D,
+                        udp=cfg.DATASET.UDP
                     )
 
                     if not reject:
@@ -135,8 +147,9 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
                     # Outputs
                     # heatmaps.append(outputs[i].squeeze(0).cpu().numpy())  # 注释：不再缓存热力图，避免 OOM
                     h_reject.append(reject)
-                    q_hmap.append(q_pr)
-                    t_hmap.append(t_pr)
+                    if save_artifacts:
+                        q_hmap.append(q_pr)
+                        t_hmap.append(t_pr)
 
                     # Metrics
                     result = {'_eR': err_q, '_eT': err_t, '_eR_HIL': speed_q, '_eT_norm_HIL': speed_t, '_pose': speed}
@@ -174,9 +187,10 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
                         theta_t=cfg.TEST.SPEED_THRESHOLD_T)
 
                     # Save & record
-                    R_reg.append(R_pr)
-                    t_reg.append(t_pr)
-                    bbox_reg.append(bbox_pr)
+                    if save_artifacts:
+                        R_reg.append(R_pr)
+                        t_reg.append(t_pr)
+                        bbox_reg.append(bbox_pr)
 
                     # Metrics
                     result = {'_iou': iou, '_eR': err_q, '_eT': err_t, '_eR_HIL': speed_q, '_eT_norm_HIL': speed_t, '_pose': speed}
@@ -197,9 +211,9 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
         batch_time.update((time.time() - start)*1000)
         end = time.time()
 
-        if cfg.VERBOSE:
+        if cfg.VERBOSE and show_progress:
             progress.display(idx+1)
-        if idx+1 == num_batches:
+        if idx+1 == num_batches and show_progress:
             progress.display_summary()
 
         # Break
@@ -207,7 +221,7 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
             break
 
     # ----- Write results
-    if log_dir is not None:
+    if log_dir is not None and save_artifacts:
         if '/' in cfg.DATASET.DATANAME:
             partition = cfg.DATASET.DATANAME.split('/')[-1]
         else:
@@ -274,7 +288,16 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
         savemat(predfn, {'heat_q': heat_q, 'heat_t': heat_t, 'effi_R': R_reg, 'effi_t': t_reg, 'bbox': bbox_reg, 'reject': h_reject}, appendmat=False)
         logger.info(f'Pose predictions saved to {predfn}')
 
-    return metrics['final_pose'].avg
+    score = metrics['final_pose'].avg
+    if return_metrics:
+        out = {k: float(m.avg) for k, m in metrics.items()}
+        out['reject'] = int(sum(h_reject))
+        er = np.asarray(per_sample_metrics.get('heat_eR', []), dtype=np.float64)
+        if er.size:
+            out['heat_fail30'] = float((er > 30).mean())
+            out['heat_median_eR'] = float(np.median(er))
+        return score, out
+    return score
 
 
 

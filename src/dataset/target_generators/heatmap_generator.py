@@ -17,9 +17,10 @@ class HeatmapGenerator():
     """ Adopted from the repository below:
     https://github.com/HRNet/HigherHRNet-Human-Pose-Estimation/blob/master/lib/dataset/target_generators/target_generators.py
     """
-    def __init__(self, output_res, num_keypts, sigma=-1):
+    def __init__(self, output_res, num_keypts, sigma=-1, udp=False):
         self.output_res = output_res # (W, H)
         self.num_keypts = num_keypts
+        self.udp = udp
 
         if sigma < 0:
             # sigma = self.output_res/64
@@ -34,6 +35,23 @@ class HeatmapGenerator():
         # Gaussian kernel
         self.g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
 
+    def _subpixel_window(self, cx, cy):
+        """Gaussian evaluated on the integer grid around a continuous center.
+        Returns (patch, y0, y1, x0, x1) clipped to the heatmap, or None."""
+        sigma = self.sigma
+        xl = max(0, int(np.floor(cx - 3 * sigma - 1)))
+        xr = min(self.output_res[0], int(np.ceil(cx + 3 * sigma + 2)))
+        yt = max(0, int(np.floor(cy - 3 * sigma - 1)))
+        yb = min(self.output_res[1], int(np.ceil(cy + 3 * sigma + 2)))
+        if xl >= xr or yt >= yb:
+            return None
+
+        xs = np.arange(xl, xr, dtype=np.float32)
+        ys = np.arange(yt, yb, dtype=np.float32)
+        patch = np.exp(- ((xs[np.newaxis, :] - cx) ** 2 + (ys[:, np.newaxis] - cy) ** 2)
+                       / (2 * sigma ** 2))
+        return patch, yt, yb, xl, xr
+
     def __call__(self, keypts):
         # keypts: [num_keypts, 2]
         assert keypts.ndim == 2 and keypts.shape[0] == self.num_keypts, \
@@ -44,6 +62,22 @@ class HeatmapGenerator():
         sigma = self.sigma
 
         for idx, pt in enumerate(keypts):
+            if self.udp:
+                # Continuous (sub-pixel) Gaussian center
+                cx = pt[0] * self.output_res[0]
+                cy = pt[1] * self.output_res[1]
+                if cx < 0 or cy < 0 or \
+                    cx >= self.output_res[0] or cy >= self.output_res[1]:
+                    continue
+
+                window = self._subpixel_window(cx, cy)
+                if window is None:
+                    continue
+                patch, yt, yb, xl, xr = window
+                np.maximum(hms[idx, yt:yb, xl:xr], patch,
+                           out=hms[idx, yt:yb, xl:xr])
+                continue
+
             x = int(pt[0] * self.output_res[0]) # scale keypoint location
             y = int(pt[1] * self.output_res[1])
             if x < 0 or y < 0 or \
