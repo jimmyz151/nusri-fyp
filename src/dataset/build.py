@@ -8,8 +8,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import multiprocessing as mp
-
 import torch
 import numpy as np
 import random
@@ -37,8 +35,7 @@ def build_dataset(cfg, split='train', load_labels=True):
         for h in cfg.MODEL.HEAD.LOSS_HEADS:
             if h == 'heatmap': g = HeatmapGenerator(
                 [int(in_size/cfg.DATASET.OUTPUT_SIZE[0]) for in_size in cfg.DATASET.INPUT_SIZE],
-                cfg.DATASET.NUM_KEYPOINTS, cfg.DATASET.SIGMA,
-                udp=cfg.DATASET.UDP
+                cfg.DATASET.NUM_KEYPOINTS, cfg.DATASET.SIGMA, udp=cfg.DATASET.UDP
             )
             else:
                 g = None
@@ -84,11 +81,7 @@ def get_dataloader(cfg, split='train', distributed=False, load_labels=True):
         pin_memory=True,
         drop_last=True,
         worker_init_fn=_seed_worker,
-        sampler=train_sampler,
-        # Workers only read images and never touch CUDA. Forking shares the
-        # dataset (pandas CSV) copy-on-write, whereas spawn re-imports torch and
-        # pickles the whole dataset per worker, which stalls start-up.
-        multiprocessing_context=mp.get_context('fork') if num_workers > 0 else None,
+        sampler=train_sampler
     )
 
     return data_loader

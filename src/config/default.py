@@ -69,27 +69,8 @@ _C.DATASET.OUTPUT_SIZE = [4, 8, 16, 32]                     # Reduce factor w.r.
 
 # - Head-specific
 _C.DATASET.SIGMA = 2                                        # Heatmap Gaussian kernel parameter
-
-# - Heatmap encoding: UDP (sub-pixel)
-#   True : the training target is a Gaussian centered on the continuous keypoint
-#          position, and the decoder fits a 3-point parabola (sub-pixel).
-#   False: baseline, Gaussian centered on the truncated integer cell and decoded
-#          at the integer argmax.
-_C.DATASET.UDP = False
-
-# - Detection-error-simulated crop (training only)
-#   When enabled, a sample is cropped around its GT box (from the ORIGINAL image)
-#   with jitter that mimics mask-head detection errors, then resized to INPUT_SIZE.
-_C.DATASET.CROP = CN()
-_C.DATASET.CROP.ENABLE       = False   # Use mixed full-frame + crop training
-_C.DATASET.CROP.PROB         = 0.5     # Probability of the crop branch (~1:1 mix)
-_C.DATASET.CROP.EXPAND       = 1.2     # Window expansion w.r.t. the GT box
-_C.DATASET.CROP.JITTER_SHIFT = 0.1     # Center error U[+-x] * window height
-_C.DATASET.CROP.JITTER_SIDE  = 0.15    # Scale error U[1-x, 1+x]
-_C.DATASET.CROP.SEVERE_PROB  = 0.075   # Fraction of crop samples with severe offset
-_C.DATASET.CROP.SEVERE_SHIFT = 0.4     # Severe center offset U[0.25, x] * window height
-_C.DATASET.CROP.SEVERE_SCALE = [0.6, 1.4]
-_C.DATASET.CROP.MIN_SIDE     = 64      # Minimum window height [px] in the original image
+_C.DATASET.UDP   = False                                    # Unbiased data processing: sub-pixel
+                                                            # heatmap target & parabola decoding
 
 # ------------------------------------------------------------------------------ #
 # Training-related parameters
@@ -119,6 +100,10 @@ _C.TRAIN.IMAGES_PER_GPU = 32                                # Batch size PER GPU
 _C.TRAIN.SHUFFLE        = True
 _C.TRAIN.WORKERS        = 4
 _C.TRAIN.AUGMENT_WORKERS = 4                                # 进程数，用于 style-first 的像素增强
+_C.TRAIN.FREEZE_BACKBONE = False                            # 微调探针：冻结骨干特征，只训练 neck/heads
+
+# - TensorBoard (rank 0 only, results/tensorboard/<EXP_NAME>; failure never stops training)
+_C.TRAIN.TENSORBOARD = True
 
 # - CSV files
 _C.TRAIN.TRAIN_CSV  = 'synthetic/splits/train.csv'
@@ -162,14 +147,17 @@ _C.TEST.IMAGES_PER_GPU = 1                                  # Batch size (only 1
 _C.TEST.HEAD = ['heatmap']                                  # Which prediction heads to evaluate?
 _C.TEST.HEATMAP_THRESHOLD = 0.5                             # Keypoints detection threshold
 _C.TEST.BBOX_THRESHOLD    = 0.5                             # Bounding box detection threshold
-_C.TEST.MASK_THRESHOLD    = 0.5                             # Foreground threshold for mask-based detection
-_C.TEST.CROP_REFINE       = False                           # Two-stage: crop with the mask box, run again
-_C.TEST.CROP_EXPAND       = 1.2                             # Stage-2 crop expansion
 _C.TEST.TEST_CSV = 'lightbox/splits/lightbox.csv'           # CSV file to containing images to test on
 
 # - Thresholds for SPEED metric (SPEED+ lightbox, sunlamp)
 _C.TEST.SPEED_THRESHOLD_Q = 0.169    # [deg]
 _C.TEST.SPEED_THRESHOLD_T = 2.173e-3 # [m/m]
+
+# - In-training probe on a target-domain subset (monitoring only; never stops training)
+_C.TEST.PROBE_ENABLE = True
+_C.TEST.PROBE_CSV = 'sunlamp/labels/sunlamp_probe400.csv'   # w.r.t. DATASET.ROOT/DATANAME
+_C.TEST.PROBE_FREQ = 4                                      # run every N epochs
+_C.TEST.PROBE_MIN_FREE_MB = 1024                            # skip probe if GPU free memory is below this
 
 # ------------------------------------------------------------------------------ #
 # ODR-related parameters
@@ -184,6 +172,7 @@ _C.ODR.IMAGES_PER_BATCH  = 4                                # Batch size for upd
 # ------------------------------------------------------------------------------ #
 _C.MODEL = CN()
 _C.MODEL.PRETRAIN_FILE     = None                           # Path to pre-trained model to load
+_C.MODEL.PRETRAIN_STRICT   = True                           # 是否严格匹配 PRETRAIN_FILE 的 state_dict
 _C.MODEL.EFFICIENTDET_PHI  = 0                              # EfficientNet scaling parameter
 _C.MODEL.FIND_UNUSED_PARAM = False                          # See find_unused_parameters argument of
                                                             # torch.nn.parallel.DistributedDataParallel
@@ -198,6 +187,7 @@ _C.MODEL.GROUPNORM_SIZE = 16                                # Group size in the 
 _C.MODEL.BACKBONE = CN()
 _C.MODEL.BACKBONE.NAME = 'efficientdet_d3'                  # Name of the backbone: 'efficientdet_d#'
 _C.MODEL.BACKBONE.PRETRAINED = None                         # Pre-trained model for the backbone only
+_C.MODEL.BACKBONE.USE_OUTPUT_LN = True                      # ConvNeXt: 是否在各级输出后加 LN 再送 BiFPN
 _C.MODEL.BACKBONE.EXTRA = CN(new_allowed=True)
 
 # - Heads
@@ -222,11 +212,12 @@ def update_config(cfg, args):
         assert 'efficientdet_d' in cfg.MODEL.BACKBONE.NAME, \
             "Only efficientdet's are supported at the moment."
         cfg.MODEL.BACKBONE.EXTRA = EFFICIENTDET_EXTRAS[cfg.MODEL.BACKBONE.NAME]
-    elif 'convnext' in cfg.MODEL.BACKBONE.NAME:
-        # ConvNeXt backbones need no EXTRAS (channels are fixed by torchvision)
+    elif 'convnext_bifpn' in cfg.MODEL.BACKBONE.NAME:
+        # ConvNeXt-T 自带 96/192/384/768 通道表，无需 EXTRA
         pass
     else:
-        raise AssertionError("Only efficientdet and convnext backbones are supported at the moment.")
+        raise AssertionError(
+            "Only efficientdet / convnext_bifpn backbones are supported at the moment.")
 
     # Full paths to auxiliary files
     cfg.DATASET.CAMERA    = join(cfg.DATASET.ROOT, cfg.DATASET.DATANAME, cfg.DATASET.CAMERA)

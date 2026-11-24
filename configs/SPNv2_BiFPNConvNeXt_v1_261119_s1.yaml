@@ -31,16 +31,7 @@ DATASET:
   NUM_ANCHORS: 9
   SIGMA: 2
   UDP: True
-  CROP:
-    ENABLE: False
-    PROB: 0.5
-    EXPAND: 1.2
-    JITTER_SHIFT: 0.1
-    JITTER_SIDE: 0.15
-    SEVERE_PROB: 0.075
-    SEVERE_SHIFT: 0.4
-    SEVERE_SCALE: [0.6, 1.4]
-    MIN_SIDE: 64
+  # stage-2 裁剪相关选项已随废弃代码删除（本配置为 stage-1，不启用裁剪）
 AUGMENT:
   P: 0.5
   APPLY_TEXTURE_RANDOMIZATION: False
@@ -77,9 +68,7 @@ TEST:
   HEAD: ['heatmap', 'segmentation']
   BBOX_THRESHOLD: 0.0
   HEATMAP_THRESHOLD: 0.5
-  MASK_THRESHOLD: 0.5
-  CROP_REFINE: True
-  CROP_EXPAND: 1.2
+  # 两阶段裁剪推理（MASK_THRESHOLD / CROP_REFINE / CROP_EXPAND）已随废弃代码删除
   SPEED_THRESHOLD_Q: 0.169
   SPEED_THRESHOLD_T: 2.173e-3
 MODEL:

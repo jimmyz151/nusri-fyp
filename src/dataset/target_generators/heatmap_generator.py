@@ -20,23 +20,37 @@ class HeatmapGenerator():
     def __init__(self, output_res, num_keypts, sigma=-1, udp=False):
         self.output_res = output_res # (W, H)
         self.num_keypts = num_keypts
-        self.udp        = udp
+        self.udp = udp
 
         if sigma < 0:
             # sigma = self.output_res/64
             logger.warning('Warning! Set sigma > 0 for heatmaps')
 
         self.sigma = sigma
+        size = 6*sigma + 3
+        x = np.arange(0, size, 1, float)
+        y = x[:, np.newaxis]
+        x0, y0 = 3*sigma + 1, 3*sigma + 1
 
-        if not self.udp:
-            # Baseline: one integer-centered kernel, stamped at the truncated cell
-            size = 6*sigma + 3
-            x = np.arange(0, size, 1, float)
-            y = x[:, np.newaxis]
-            x0, y0 = 3*sigma + 1, 3*sigma + 1
+        # Gaussian kernel
+        self.g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
 
-            # Gaussian kernel
-            self.g = np.exp(- ((x - x0) ** 2 + (y - y0) ** 2) / (2 * sigma ** 2))
+    def _subpixel_window(self, cx, cy):
+        """Gaussian evaluated on the integer grid around a continuous center.
+        Returns (patch, y0, y1, x0, x1) clipped to the heatmap, or None."""
+        sigma = self.sigma
+        xl = max(0, int(np.floor(cx - 3 * sigma - 1)))
+        xr = min(self.output_res[0], int(np.ceil(cx + 3 * sigma + 2)))
+        yt = max(0, int(np.floor(cy - 3 * sigma - 1)))
+        yb = min(self.output_res[1], int(np.ceil(cy + 3 * sigma + 2)))
+        if xl >= xr or yt >= yb:
+            return None
+
+        xs = np.arange(xl, xr, dtype=np.float32)
+        ys = np.arange(yt, yb, dtype=np.float32)
+        patch = np.exp(- ((xs[np.newaxis, :] - cx) ** 2 + (ys[:, np.newaxis] - cy) ** 2)
+                       / (2 * sigma ** 2))
+        return patch, yt, yb, xl, xr
 
     def __call__(self, keypts):
         # keypts: [num_keypts, 2]
@@ -49,27 +63,19 @@ class HeatmapGenerator():
 
         for idx, pt in enumerate(keypts):
             if self.udp:
-                # Continuous peak location: the Gaussian is centered on the exact
-                # sub-pixel position so that the parabola decoding is unbiased.
+                # Continuous (sub-pixel) Gaussian center
                 cx = pt[0] * self.output_res[0]
                 cy = pt[1] * self.output_res[1]
-
                 if cx < 0 or cy < 0 or \
                     cx >= self.output_res[0] or cy >= self.output_res[1]:
                     continue
 
-                radius = int(np.round(3 * sigma + 1))
-                cc = max(0, int(np.floor(cx)) - radius)
-                dd = min(self.output_res[0], int(np.ceil(cx)) + radius + 1)
-                aa = max(0, int(np.floor(cy)) - radius)
-                bb = min(self.output_res[1], int(np.ceil(cy)) + radius + 1)
-
-                xs = np.arange(cc, dd, dtype=np.float32)[None, :]
-                ys = np.arange(aa, bb, dtype=np.float32)[:, None]
-
-                g = np.exp(- ((xs - cx) ** 2 + (ys - cy) ** 2) / (2 * sigma ** 2))
-
-                hms[idx, aa:bb, cc:dd] = np.maximum(hms[idx, aa:bb, cc:dd], g)
+                window = self._subpixel_window(cx, cy)
+                if window is None:
+                    continue
+                patch, yt, yb, xl, xr = window
+                np.maximum(hms[idx, yt:yb, xl:xr], patch,
+                           out=hms[idx, yt:yb, xl:xr])
                 continue
 
             x = int(pt[0] * self.output_res[0]) # scale keypoint location

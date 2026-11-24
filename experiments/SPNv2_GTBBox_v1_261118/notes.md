@@ -26,6 +26,8 @@
 
 ## 复现
 
+> 注意：GT 框裁剪的旧实现已随废弃代码删除；下列命令与 `config.yaml` 仅保留实验记录，当前代码无法直接重跑。
+
 ```bash
 cd /opt/data/private/speNet
 CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 MPLCONFIGDIR=/tmp/mpl \
@@ -47,9 +49,21 @@ CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 \
 
 - 上界口径（GT 框）：与 `SPNv2_baseline_v1_261113` 的 heat 头比较；注意 baseline 是三头训练，存在多任务差异
 - 几何下限（GT 关键点直接解码）：0.06 px / eR 0.03° / eT 0.0004 m，若实测远离该值即为网络误差而非坐标变换误差
-- 尚无检测器，本轮不给部署绝对值；框误差敏感性留待 P1 合成扰动扫描
+- 尚无检测器，本轮不给部署绝对值；框误差敏感性已完成 400 张全量扫描，见 `results/tables/SPNv2_GTBBox_v1_261118/probes/box_sensitivity/`
 
 ## 备注
 
 - 吞吐：双卡 bs8（全局 16）约 560 ms/iter，2997 iter/epoch，约 28 min/epoch
 - 环境：本机后台执行拿不到 GPU，必须前台运行
+
+## 合成域结果来源
+
+`metrics.csv` 中的 `synthetic` 块来自训练期验证日志，不是独立的全量测试：
+
+- 数据：`synthetic/labels/validation.csv`，训练期只取 `TRAIN.VALID_FRACTION=0.1`（约前 1,199 张）
+- 权重：`model_best.pth.tar` 对应的 best epoch（按合成域 `final_pose` 选优）
+- best epoch：20（2026/11/19 10:08:48）
+- 日志：`logs/SPNv2_GTBBox_v1_261118/train_20261118_19_35_05/train_rank0.log`
+- 可用指标：`heat_eR`、`final_pose`；该实验只有 heatmap + segmentation 两头，没有 `effi_eT`，也未记录 eT/HIL/IoU/reject/segm_iou，故 `synthetic` 行不完整
+- `final_pose` 定义：heatmap + segmentation 模型为 `heat_eR_HIL + heat_eT_norm_HIL`
+- 数值精度：日志保留 3 位小数

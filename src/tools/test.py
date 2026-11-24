@@ -90,7 +90,7 @@ def main(cfg):
                      valid_fraction=None,
                      log_dir=result_dir,
                      device=device,
-                     allow_refine=True)
+                     phase='Testing')
 
 if __name__=='__main__':
     main(cfg)

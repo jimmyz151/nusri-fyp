@@ -50,43 +50,37 @@ def get_scaled_parameters(phi):
     return parameters
 
 def _build_backbone(cfg):
-    """ Create the feature encoder
+    """ Create backbone
 
         Args:
             cfg: Object containing configuration parameters
 
         Returns:
-            backbone: EfficientDet (EfficientNet + BiFPN) or ConvNeXt + BiFPN
+            backbone: SPNv2 backbone (EfficientNet / ConvNeXt + BiFPN)
     """
-    if 'convnext' in cfg.MODEL.BACKBONE.NAME:
-        assert 'bifpn' in cfg.MODEL.BACKBONE.NAME, \
-            'ConvNeXt must be built with the BiFPN neck (convnext_bifpn_*)'
-        scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
-        backbone = ConvNeXtBiFPN(cfg, scaled_parameters)
-    elif 'efficientdet' in cfg.MODEL.BACKBONE.NAME:
-        scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
+    scaled_parameters = get_scaled_parameters(cfg.MODEL.EFFICIENTDET_PHI)
+
+    if 'efficientdet' in cfg.MODEL.BACKBONE.NAME:
         backbone = EfficientDet(cfg, scaled_parameters)
-        backbone.head_in_channels = scaled_parameters['bifpn_width']
+    elif 'convnext_bifpn' in cfg.MODEL.BACKBONE.NAME:
+        backbone = ConvNeXtBiFPN(cfg, scaled_parameters)
     else:
         raise AssertionError(
-            'Only efficientdet and convnext backbones are supported at the moment'
-        )
+            f'Unsupported backbone: {cfg.MODEL.BACKBONE.NAME}')
 
     logger.info(f'   - Backbone: {cfg.MODEL.BACKBONE.NAME} (# param: {num_total_parameters(backbone):,d})')
 
     if cfg.MODEL.USE_GROUPNORM_BACKBONE:
         logger.info(f'   - GroupNorm built for backbone')
-        logger.info(f'   - Pretrained model loaded from {cfg.MODEL.BACKBONE.PRETRAINED}')
 
     return backbone
 
-def _build_heads(cfg, in_channels):
+def _build_heads(cfg):
     """ Build head networks based on the configuration. Individual head networks
         take input from the output of the backbone network.
 
     Args:
         cfg ([type]): Object containing configuration parameters
-        in_channels (int): Number of channels of the backbone feature map fed to heads
 
     Returns:
         heads: nn.ModuleList of head networks
@@ -98,7 +92,7 @@ def _build_heads(cfg, in_channels):
     # Create heads
     for i, name in enumerate(cfg.MODEL.HEAD.NAMES):
         if name == 'heatmap':
-            head = HeatmapHead(in_channels,
+            head = HeatmapHead(scaled_parameters['bifpn_width'],
                                scaled_parameters['subnet_depth'],
                                cfg.DATASET.NUM_KEYPOINTS,
                                cfg.MODEL.USE_GROUPNORM_HEADS,
@@ -106,14 +100,14 @@ def _build_heads(cfg, in_channels):
 
         elif name == 'efficientpose':
             head = EfficientPoseHead(cfg,
-                                     in_channels,
+                                     scaled_parameters['bifpn_width'],
                                      scaled_parameters['subnet_depth'],
                                      scaled_parameters['subnet_num_iteration_steps'],
                                      cfg.MODEL.USE_GROUPNORM_HEADS,
                                      scaled_parameters['num_groups_gn'])
 
         elif name == 'segmentation':
-            head = SegmentationHead(in_channels,
+            head = SegmentationHead(scaled_parameters['bifpn_width'],
                                     scaled_parameters['subnet_depth'],
                                     cfg.MODEL.USE_GROUPNORM_HEADS,
                                     cfg.MODEL.GROUPNORM_SIZE)
@@ -148,7 +142,7 @@ class SPNv2(nn.Module):
         self.backbone = _build_backbone(cfg)
 
         # Build task-specific heads
-        self.heads      = _build_heads(cfg, self.backbone.head_in_channels)
+        self.heads      = _build_heads(cfg)
         self.head_names = cfg.MODEL.HEAD.NAMES
 
         # Which heads to compute loss?
@@ -235,7 +229,7 @@ def build_spnv2(cfg):
 
     if cfg.MODEL.PRETRAIN_FILE:
         load_dict = torch.load(cfg.MODEL.PRETRAIN_FILE, map_location='cpu')
-        net.load_state_dict(load_dict, strict=True)
+        net.load_state_dict(load_dict, strict=cfg.MODEL.PRETRAIN_STRICT)
 
         logger.info(f'   - Pretrained model loaded from {cfg.MODEL.PRETRAIN_FILE}')
 

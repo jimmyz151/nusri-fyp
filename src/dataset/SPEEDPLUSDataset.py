@@ -20,7 +20,6 @@ import torch
 from torchvision.transforms.functional import to_tensor
 
 from utils.postprocess import quat2dcm
-from utils.crop        import compute_crop_window, crop_with_pad, map_points_to_crop
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,6 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
                  target_generators=None
     ):
         self.root        = join(cfg.DATASET.ROOT, cfg.DATASET.DATANAME)
-        self.split       = split
         self.is_train    = split == 'train'
 
         self.image_size  = cfg.DATASET.IMAGE_SIZE # Original image size
@@ -57,14 +55,6 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
         self.imagefolder = 'images_768x512_RGB'
         self.maskfolder  = 'masks_192x128'
         self.stylefolder = 'styles_768x512_RGB'
-
-        # Original-resolution folders (crop branches must never crop the resized copy)
-        self.imagefolder_orig = 'images'
-        self.maskfolder_orig  = 'masks'
-
-        # Detection-error-simulated crop (training) and mask-box refinement (test)
-        self.crop_cfg     = cfg.DATASET.CROP
-        self.crop_refine  = cfg.TEST.CROP_REFINE
 
         # Load CSV & determine image domain
         self.csv, self.domain = self._load_csv(cfg, split)
@@ -95,29 +85,16 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         assert index < len(self), 'Index range error'
 
+        #------------ Read image
+        image = self._load_image(index)
+
         #------------ Read all annotations
         anno = self._load_annotations(index) if self.load_labels else None
 
-        #------------ Read image (+mask) with optional detection-error crop
-        use_crop = self.is_train and self.crop_cfg.ENABLE \
-            and random.random() < self.crop_cfg.PROB
-
-        if use_crop:
-            # IMPORTANT: crop from the ORIGINAL image, not the 768x512 copy
-            image = self._load_image(index, folder=self.imagefolder_orig)
-            mask  = self._load_mask(index, folder=self.maskfolder_orig) if self.load_masks else None
-
-            window = self._sample_crop_window(anno['boundingbox'])
-            image, mask, anno = self._apply_crop(image, mask, anno, window)
-
-            mask_target = None
-            if mask is not None:
-                mask_target = torch.from_numpy(mask).float().div_(255.0).unsqueeze(0)
-        else:
-            image = self._load_image(index)
-            mask_target = None
-            if self.load_labels and self.load_masks:
-                mask_target = to_tensor(self._load_mask(index))
+        #------------- Read mask
+        if self.load_labels and self.load_masks:
+            mask = self._load_mask(index)
+            anno['mask'] = to_tensor(mask)
 
         #------------ Image data transform
         if self.load_labels:
@@ -154,7 +131,7 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
 
         # Extra target for the segmentation head (required for both training and validation)
         if self.load_masks:
-            targets['mask'] = mask_target
+            targets['mask'] = anno['mask']
 
         if self.is_train:
             for i, h in enumerate(self.head_names):
@@ -166,72 +143,7 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
                 else:
                     raise ValueError(f'{h} is not a valid head name')
 
-        #---------- Original image for the two-stage refinement at test time
-        if (not self.is_train) and self.split == 'test' and self.crop_refine:
-            image_orig = self._load_image(index, folder=self.imagefolder_orig)
-            image_orig = np.ascontiguousarray(image_orig.transpose(2, 0, 1))
-            targets['image_orig'] = torch.from_numpy(image_orig)
-
         return image, targets
-
-    def _sample_crop_window(self, bbox_norm):
-        """ Sample a 3:2 crop window around the GT box with detection-like errors """
-        W, H = self.image_size
-        bbox = bbox_norm * np.array([W, H, W, H], dtype=np.float32)
-
-        cx = (bbox[0] + bbox[2]) / 2
-        cy = (bbox[1] + bbox[3]) / 2
-        bw = max(float(bbox[2] - bbox[0]), 1.0)
-        bh = max(float(bbox[3] - bbox[1]), 1.0)
-
-        if random.random() < self.crop_cfg.SEVERE_PROB:
-            # Long-tail detection failures: large offset, wrong scale, partially out of frame
-            angle = random.uniform(0, 2 * np.pi)
-            mag   = random.uniform(0.25, self.crop_cfg.SEVERE_SHIFT)
-            shift = (mag * np.cos(angle), mag * np.sin(angle))
-            scale = random.choice(self.crop_cfg.SEVERE_SCALE)
-        else:
-            shift = (random.uniform(-self.crop_cfg.JITTER_SHIFT, self.crop_cfg.JITTER_SHIFT),
-                     random.uniform(-self.crop_cfg.JITTER_SHIFT, self.crop_cfg.JITTER_SHIFT))
-            scale = random.uniform(1.0 - self.crop_cfg.JITTER_SIDE,
-                                   1.0 + self.crop_cfg.JITTER_SIDE)
-
-        return compute_crop_window(cx, cy, bw, bh, self.image_size,
-                                   expand=self.crop_cfg.EXPAND,
-                                   shift=shift, scale=scale,
-                                   min_side=self.crop_cfg.MIN_SIDE)
-
-    def _apply_crop(self, image, mask, anno, window):
-        """ Crop original image/mask and remap keypoints & bbox into the crop frame """
-        W, H   = self.image_size
-        iw, ih = self.input_size
-        ow, oh = self.output_size
-
-        # Image: original -> crop -> network input
-        image = crop_with_pad(image, window)
-        image = cv2.resize(image, (iw, ih), interpolation=cv2.INTER_LINEAR)
-
-        # Mask: same window -> head output resolution
-        if mask is not None:
-            mask = crop_with_pad(mask, window)
-            mask = cv2.resize(mask, (ow, oh), interpolation=cv2.INTER_NEAREST)
-            mask = np.asarray(mask)
-            if mask.ndim == 3:
-                mask = mask[:, :, 0]
-            mask[mask >  128] = 255
-            mask[mask <= 128] = 0
-
-        # Keypoints: normalized -> original px -> crop-normalized
-        keypts = anno['keypoints'] * np.array([W, H], dtype=np.float32)
-        keypts = map_points_to_crop(keypts, window)
-        anno['keypoints'] = keypts.astype(np.float32)
-
-        # Bounding box: normalized -> original px -> crop-normalized
-        bbox = anno['boundingbox'] * np.array([W, H, W, H], dtype=np.float32)
-        bbox = map_points_to_crop(bbox.reshape(2, 2), window).reshape(4)
-        anno['boundingbox'] = np.clip(bbox, 0.0, 1.0).astype(np.float32)
-
-        return image, mask, anno
 
     def _load_csv(self, cfg, split='train'):
         """ Load CSV content into pandas.DataFrame """
@@ -282,13 +194,10 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
         # NOTE: SPEED+ images are stored as grayscale, so no BGR->RGB swap is needed here.
         return image
 
-    def _load_mask(self, index, folder=None):
+    def _load_mask(self, index):
         """ Read mask image """
 
-        if folder is None:
-            folder = self.maskfolder
-
-        imgpath = join(self.root, self.domain, folder, self.csv.iloc[index, 0])
+        imgpath = join(self.root, self.domain, self.maskfolder, self.csv.iloc[index, 0])
         data    = cv2.imread(imgpath, cv2.IMREAD_GRAYSCALE)
         if data is None:
             raise FileNotFoundError(

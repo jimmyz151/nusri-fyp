@@ -119,6 +119,39 @@ If you are a Stanford student with access to the [Sherlock](https://www.sherlock
 
 - `scripts/sherlock_offline_dist_train.sh` for distributed training.
 
+## TensorBoard
+
+Training writes TensorBoard scalars from rank 0 to `results/tensorboard/<EXP_NAME>/`.
+Logging is best-effort: if TensorBoard or the writer fails, training continues.
+
+```bash
+tensorboard --logdir results/tensorboard --port 6006 --bind_all
+```
+
+To backfill existing `logs/<EXP>/train_*/train_rank0.log` files (live runs are skipped):
+
+```bash
+python3 src/tools/export_tensorboard.py
+```
+
+What to read:
+
+| Tag | Meaning |
+| --- | --- |
+| `train/*` | training losses (`hmap`, `seg`, `cls`, `box`, `pose`) |
+| `val/heat_eR`, `val/final_pose`, `val/effi_eT` | synthetic validation |
+| `probe/*` | target-domain subset (enabled by default; `TEST.PROBE_ENABLE: False` to disable) |
+| `opt/lr`, `perf/ms_per_batch`, `perf/epoch_seconds` | schedule and throughput |
+| Text tab | `config/key_params`, `config/yaml`, `final/full_test` |
+
+The synthetic domain is for convergence only. Cross-domain behavior should be read from
+`probe/*`: `final_pose`, `eR_HIL`, `eT_norm_HIL`, `heat_fail30`, and `heat_median_eR`.
+
+The in-training probe is monitoring only. It runs on rank 0 with batch 1 and no gradients,
+writes metrics to `experiments/probes/<EXP_NAME>/online_probe.csv`, saves no weights or
+predictions, and never stops training. Probe artifacts do not go under the model experiment
+directory; probe experiments live in `experiments/probes/<probe_name>/`.
+
 ## Online Domain Refinement (ODR)
 
 To perform ODR, run

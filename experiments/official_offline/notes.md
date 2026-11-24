@@ -8,3 +8,4 @@
 - 结果：`results/tables/official_offline/{synthetic,lightbox,sunlamp}/`
 - 指标汇总：`metrics.csv`
 - 说明：synthetic 为验证集，lightbox / sunlamp 为 SPEED+ HIL 域。
+- 备注：本实验的 `synthetic` 为完整验证集（11,994 张）独立测试结果；其余训练实验 `metrics.csv` 中的 `synthetic` 块来自训练期 10% 验证日志，口径不同，不可直接比较。

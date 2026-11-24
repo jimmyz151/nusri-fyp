@@ -58,60 +58,77 @@ class AverageMeter(object):
         self.count += n
         self.avg    = self.sum / self.count
 
+    def avg_str(self):
+        """ Compact `name avg unit` representation used by the progress line """
+        unit = '' if self.unit in ('', '-') else f' {self.unit}'
+        spec = self.fmt[1:] if self.fmt.startswith(':') else self.fmt
+        return f'{self.name} {self.avg:{spec}}{unit}'.strip()
+
     def __str__(self):
-        fmtstr = '' if not self.name else '{name} '
-        fmtstr += '{val' + self.fmt + '} ({avg' + self.fmt + '}) {unit}'
-        return fmtstr.format(**self.__dict__)
+        spec = self.fmt[1:] if self.fmt.startswith(':') else self.fmt
+        return f'{self.name or ""} {self.val:{spec}} {self.avg:{spec}}'.strip()
 
-    def summary(self):
-        fmtstr = ''
-        if self.summary_type is Summary.NONE:
-            fmtstr = ''
-        elif self.summary_type is Summary.AVERAGE:
-            fmtstr = '{name} {avg:.3f}'
-        elif self.summary_type is Summary.SUM:
-            fmtstr = '{name} {sum:.3f}'
-        elif self.summary_type is Summary.COUNT:
-            fmtstr = '{name} {count:.3f}'
-        else:
-            raise ValueError('invalid summary type %r' % self.summary_type)
-
-        fmtstr += ' {unit}'
-
-        return fmtstr.format(**self.__dict__)
+def _format_duration(seconds):
+    """ Format a duration in seconds as h:mm:ss (or mm:ss below one hour) """
+    seconds = max(int(seconds), 0)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f'{hours:d}:{minutes:02d}:{secs:02d}'
+    return f'{minutes:02d}:{secs:02d}'
 
 class ProgressMeter(object):
-    """ Prints training progress
+    """ Compact training/testing progress reporter.
 
-        Modified from
-        https://github.com/pytorch/examples/blob/master/imagenet/main.py
+        - On a terminal the line is refreshed in place every batch.
+        - When stdout is redirected to a file, one line is emitted every
+          `log_freq` batches (about 60 lines per epoch) so logs stay readable.
     """
-    def __init__(self, num_batches, timer, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.num_batches = num_batches
+    def __init__(self, num_batches, timer, meters, prefix="", log_freq=None):
+        self.num_batches = max(int(num_batches), 1)
+        self.batch_fmtstr = self._get_batch_fmtstr(self.num_batches)
         self.timer  = timer
         self.meters = meters
         self.prefix = prefix
+        self.log_freq = log_freq or max(1, self.num_batches // 60)
 
     def display(self, batch):
-        entries = ['\r' + self.prefix + self.batch_fmtstr.format(batch) \
-                      + ' [' + str(self.timer) + ']']
-        entries += [str(meter) for meter in self.meters]
-        msg = '\t'.join(entries)
+        finished = batch >= self.num_batches
+        line_mode = not sys.stdout.isatty()
 
-        if batch < self.num_batches:
-            sys.stdout.write(msg)
-            sys.stdout.flush()
+        # Redirected output: emit standalone lines at a reduced rate
+        if line_mode and not finished and batch > 1 and batch % self.log_freq != 0:
+            return
+
+        msg = self._format(batch)
+        if line_mode:
+            sys.stdout.write(msg + '\n')
         else:
-            sys.stdout.write('\r')
-            sys.stdout.flush()
-            sys.stdout.write(msg[1:]+'\n')
+            # Refresh the same terminal line in place
+            sys.stdout.write('\r' + msg + ('\n' if finished else ''))
+        sys.stdout.flush()
 
     def display_summary(self):
-        entries = [" *"]
-        entries += ['Time: ' + self.timer.summary()]
-        entries += [meter.summary() for meter in self.meters]
-        logger.info(' '.join(entries))
+        entries = [
+            f'batches {self.num_batches}',
+            f'{self.timer.avg:.1f} ms/batch',
+        ]
+        entries += [meter.avg_str() for meter in self.meters if meter.name]
+        logger.info(f'{self.prefix} summary | ' + ' | '.join(entries))
+
+    def _format(self, batch):
+        progress = 100.0 * batch / self.num_batches
+        elapsed = self.timer.avg * batch / 1000.0
+        # A single sample is too noisy to give a meaningful ETA
+        eta = '--:--' if batch <= 1 else \
+            _format_duration(self.timer.avg * max(self.num_batches - batch, 0) / 1000.0)
+
+        msg = (f'{self.prefix} {self.batch_fmtstr.format(batch)} '
+               f'{progress:5.1f}% | {_format_duration(elapsed)}<{eta} | '
+               f'{self.timer.avg:6.1f} ms/batch')
+        if self.meters:
+            msg += ' | ' + ' | '.join(meter.avg_str() for meter in self.meters)
+        return msg
 
     def _get_batch_fmtstr(self, num_batches):
         num_digits = len(str(num_batches // 1))

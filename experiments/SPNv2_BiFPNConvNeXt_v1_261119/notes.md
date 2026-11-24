@@ -1,9 +1,9 @@
 # SPNv2_BiFPNConvNeXt_v1_261119
 
 - 模型：ConvNeXt-T + **原版 BiFPN neck**（C2~C5 输入，输出 P2~P7）+ `heatmap` / `segmentation` 两头；**不加 EfficientPose 检测头**
-- 实验类型：骨干替换（EfficientNet-D3 → ConvNeXt-T），保留多尺度 neck；mask 头兼任检测并驱动两阶段裁剪
+- 实验类型：骨干替换（EfficientNet-D3 → ConvNeXt-T），保留多尺度 neck；mask 头兼任检测（两阶段裁剪已弃用）
 - 日期：2026-11-19
-- 配置快照：`config.yaml`（s2/最终）、`config_s1.yaml`（s1）；源码在 `configs/`
+- 配置快照：`config.yaml`（= stage-1 配置）；源码 `configs/SPNv2_BiFPNConvNeXt_v1_261119_s1.yaml`
 - 权重：`checkpoints/SPNv2_BiFPNConvNeXt_v1_261119/`
 - 日志：`logs/SPNv2_BiFPNConvNeXt_v1_261119/`
 - 结果：`results/tables/SPNv2_BiFPNConvNeXt_v1_261119/{lightbox,sunlamp}/`
@@ -28,8 +28,8 @@
   - 作为 `[None, C2, C3, C4, C5]` 输入现有 `BiFPNLayer`；P6/P7 由 C5 下采样生成
   - 输出 P2~P7，宽度 160（phi=3），深度 4
 - 头部：`heatmap`（192×128，UDP）+ `segmentation`（192×128）读 P2；无 `efficientpose`
-- 检测：mask 最大连通域外接框（`segm_det_iou`），并驱动 stage-2 裁剪
-- 两阶段推理：全帧 → mask 框 → 3:2 裁剪原图 → 同一权重第二次前向 → `ref_*`；失败回退 stage-1
+- 检测：mask 最大连通域外接框（`segm_det_iou`）
+- 两阶段推理（已弃用）：全帧 → mask 框 → 3:2 裁剪原图 → 同一权重第二次前向 → `ref_*`；实测 fallback 高、明显劣于单阶段，仅保留历史结果
 
 ## 与 baseline 的差异
 
@@ -44,8 +44,9 @@
 | 阶段 | 配置 | 初始化 | 说明 |
 | --- | --- | --- | --- |
 | s1 | `configs/SPNv2_BiFPNConvNeXt_v1_261119_s1.yaml` | ImageNet ConvNeXt-T | 全帧 20 epoch |
-| 统计 | `src/tools/bbox_error_stats.py` | s1 | mask 框误差分位数，定 s2 抖动 |
-| s2 | `configs/SPNv2_BiFPNConvNeXt_v1_261119.yaml` | s1 best | 全帧 + 误差模拟裁剪混合 20 epoch |
+| s2 | 已删除 | s1 best | 全帧 + 误差模拟裁剪混合训练；**从未实际运行**，相关配置与裁剪代码已删除 |
+
+现有全部 v1 结果都来自 stage-1 权重。`metrics.csv` 的 lightbox / sunlamp 行取自 stage-1 全帧单阶段推理（`results/tables/SPNv2_BiFPNConvNeXt_v1_261119_s1_fullframe/`）；两阶段 refine 结果只保留在 `results/tables/SPNv2_BiFPNConvNeXt_v1_261119_s1/`，不进入汇总。
 
 ## 复现
 
@@ -60,28 +61,11 @@ CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 MPLCONFIGDIR=/tmp/mpl \
   EXP_NAME SPNv2_BiFPNConvNeXt_v1_261119 AUTO_RESUME False VERBOSE True
 ```
 
-s1 后备份权重：
+s1 后备份权重（`v1_recheck_probe400` 使用该权重）：
 
 ```bash
 cp checkpoints/SPNv2_BiFPNConvNeXt_v1_261119/model_best.pth.tar \
    checkpoints/SPNv2_BiFPNConvNeXt_v1_261119/stage1_model_best.pth.tar
-```
-
-统计框误差：
-
-```bash
-CUDA_VISIBLE_DEVICES=0 /opt/data/private/venvs/zz_fyp/bin/python src/tools/bbox_error_stats.py \
-  --cfg configs/SPNv2_BiFPNConvNeXt_v1_261119_s1.yaml \
-  EXP_NAME SPNv2_BiFPNConvNeXt_v1_261119 TEST.TEST_CSV synthetic/labels/validation.csv
-```
-
-s2：
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 MPLCONFIGDIR=/tmp/mpl \
-/opt/data/private/venvs/zz_fyp/bin/python src/train.py \
-  --cfg configs/SPNv2_BiFPNConvNeXt_v1_261119.yaml \
-  EXP_NAME SPNv2_BiFPNConvNeXt_v1_261119 AUTO_RESUME False VERBOSE True
 ```
 
 测试：
@@ -89,7 +73,7 @@ CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 MPLCONFIGDIR=/tmp/mpl \
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 PYTHONUNBUFFERED=1 \
 /opt/data/private/venvs/zz_fyp/bin/python src/tools/test.py \
-  --cfg configs/SPNv2_BiFPNConvNeXt_v1_261119.yaml EXP_NAME SPNv2_BiFPNConvNeXt_v1_261119 VERBOSE True \
+  --cfg configs/SPNv2_BiFPNConvNeXt_v1_261119_s1.yaml EXP_NAME SPNv2_BiFPNConvNeXt_v1_261119 VERBOSE True \
   TEST.TEST_CSV lightbox/labels/lightbox.csv
 ```
 
@@ -99,4 +83,16 @@ sunlamp 同理替换 `TEST.TEST_CSV`。
 
 - 同期合成域：第 1 轮 `heat_eR` 应回到个位数（baseline 3.57°），第 8 轮接近 baseline 的 1.38°
 - 最终目标：超过 baseline 的 `final_pose`（lightbox 0.153 / sunlamp 0.270）
-- 观察 `segm_det_iou`、`ref_pose` 相对 `heat_pose` 的增益、`# fallback` 比例
+- 观察 `segm_det_iou` 与 seg / heat 的收敛是否同步
+
+## 合成域结果来源
+
+`metrics.csv` 中的 `synthetic` 块来自训练期验证日志，不是独立的全量测试：
+
+- 数据：`synthetic/labels/validation.csv`，训练期只取 `TRAIN.VALID_FRACTION=0.1`（约前 1,199 张）
+- 权重：`model_best.pth.tar` 对应的 best epoch（按合成域 `final_pose` 选优）
+- best epoch：20（2026/11/20 16:24:07）
+- 日志：`logs/SPNv2_BiFPNConvNeXt_v1_261119/train_20261119_21_26_14/train_rank0.log`
+- 可用指标：`heat_eR`、`final_pose`；该实验只有 heatmap + segmentation 两头，没有 `effi_eT`，也未记录 eT/HIL/IoU/reject/segm_iou，故 `synthetic` 行不完整
+- `final_pose` 定义：heatmap + segmentation 模型为 `heat_eR_HIL + heat_eT_norm_HIL`
+- 数值精度：日志保留 3 位小数

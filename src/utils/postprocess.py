@@ -21,47 +21,21 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------
 # Heatmap post-processing
 # -----------------------------------------------------------------------
-def _subpixel_offset(hm, x, y):
-    """ UDP half-pixel correction in grid units, from a 3-point parabola fit.
+def _parabola_offset(values, idx):
+    """Sub-pixel offset of the parabola vertex through values[idx-1:idx+2]."""
+    if idx <= 0 or idx >= len(values) - 1:
+        return 0.0
 
-    Args:
-        hm (np.ndarray): [H, W] heatmap of one channel
-        x, y (int): integer peak location
+    left, center, right = float(values[idx-1]), float(values[idx]), float(values[idx+1])
+    denom = left - 2.0 * center + right
+    if abs(denom) < 1e-8:
+        return 0.0
 
-    Returns:
-        (dx, dy) in [-0.5, 0.5]
-    """
-    H, W = hm.shape
+    return max(-0.5, min(0.5, 0.5 * (left - right) / denom))
 
-    x0, x1 = max(x - 1, 0), min(x + 1, W - 1)
-    y0, y1 = max(y - 1, 0), min(y + 1, H - 1)
-
-    v      = float(hm[y, x])
-    dl, dr = float(hm[y, x0]), float(hm[y, x1])
-    du, dd = float(hm[y0, x]), float(hm[y1, x])
-    den_x  = 2.0 * v - dl - dr
-    den_y  = 2.0 * v - du - dd
-
-    dx = 0.5 * (dr - dl) / den_x if den_x > 1e-12 else 0.0
-    dy = 0.5 * (dd - du) / den_y if den_y > 1e-12 else 0.0
-
-    return float(np.clip(dx, -0.5, 0.5)), float(np.clip(dy, -0.5, 0.5))
-
-
-def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D,
-                             udp=False, window=None):
+def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D, udp=False):
     # heatmaps: [Nk x H x W]
-    # udp: refine each peak with a parabola fit (sub-pixel) instead of the integer argmax
-    # window: optional (x0, y0, w, h) in original pixels. When given, heatmap
-    #         coordinates are mapped into that crop window instead of the full image.
     nK, nH, nW = heatmaps.shape
-
-    if window is None:
-        ox, oy = 0.0, 0.0
-        sx, sy = image_size[0] / nW, image_size[1] / nH
-    else:
-        ox, oy, win_w, win_h = [float(v) for v in window]
-        sx, sy = win_w / nW, win_h / nH
 
     # Take max
     maxVal, maxInd = heatmaps.view(nK, -1).max(-1)
@@ -85,14 +59,16 @@ def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_tru
             if k in visibleIdx:
                 y = torch.floor(maxInd[k] / nW)
                 x = maxInd[k] - nW * y
+                xi, yi = int(x), int(y)
+                xf, yf = float(xi), float(yi)
 
+                # Parabola sub-pixel refinement around the integer peak
                 if udp:
-                    dx, dy = _subpixel_offset(heatmaps[k].numpy(), int(x), int(y))
-                    keypts[k,0] = ox + (float(x) + dx) * sx
-                    keypts[k,1] = oy + (float(y) + dy) * sy
-                else:
-                    keypts[k,0] = ox + float(x) * sx
-                    keypts[k,1] = oy + float(y) * sy
+                    xf += _parabola_offset(heatmaps[k, yi, :], xi)
+                    yf += _parabola_offset(heatmaps[k, :, xi], yi)
+
+                keypts[k,0] = xf / nW * image_size[0]
+                keypts[k,1] = yf / nH * image_size[1]
 
         # PnP
         q, t = pnp(keypts_true_3D[visibleIdx], keypts[visibleIdx].numpy(),
@@ -114,37 +90,6 @@ def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_tru
                 reject = True
 
         return keypts, q, t, reject
-
-# -----------------------------------------------------------------------
-# Mask-based detection post-processing
-# -----------------------------------------------------------------------
-def mask_to_bbox(mask_bin, min_area=0):
-    """ Bounding box of the largest foreground connected component.
-
-    Args:
-        mask_bin (np.ndarray): [H, W] binary mask (0/1 or bool)
-        min_area (int): Minimum component area [px]; smaller is treated as empty
-
-    Returns:
-        np.ndarray [4] (xmin, ymin, xmax, ymax) or None if no foreground
-    """
-    mask = np.ascontiguousarray(mask_bin, dtype=np.uint8)
-
-    num, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
-    if num <= 1:
-        return None
-
-    # Largest foreground component (skip the background label 0)
-    idx = int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) + 1
-    if stats[idx, cv2.CC_STAT_AREA] <= min_area:
-        return None
-
-    x = stats[idx, cv2.CC_STAT_LEFT]
-    y = stats[idx, cv2.CC_STAT_TOP]
-    w = stats[idx, cv2.CC_STAT_WIDTH]
-    h = stats[idx, cv2.CC_STAT_HEIGHT]
-
-    return np.array([x, y, x + w, y + h], dtype=np.float32)
 
 # -----------------------------------------------------------------------
 # Bounding box post-processing

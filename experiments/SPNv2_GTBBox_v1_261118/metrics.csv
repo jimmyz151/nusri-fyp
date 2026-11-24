@@ -1,4 +1,6 @@
 domain,head,metric,value
+synthetic,heatmap,eR_deg,0.291
+synthetic,final,final_pose,0.007
 lightbox,heatmap,eR_deg,3.15358
 lightbox,heatmap,eT_m,0.08663
 lightbox,heatmap,eR_HIL_deg,0.05501

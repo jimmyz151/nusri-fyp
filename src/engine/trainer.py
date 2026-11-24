@@ -42,7 +42,7 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
         len(data_loader),
         batch_time,
         list(loss_meters.values()),
-        prefix="Training {:03d} ".format(epoch+1))
+        prefix="Epoch {:02d}/{:02d} train".format(epoch+1, cfg.TRAIN.END_EPOCH))
 
     # switch to train mode
     model.train()
@@ -101,8 +101,11 @@ def do_train(epoch, cfg, model, data_loader, optimizer, log_dir=None,
         # Report progress to console
         if rank == 0:
             if cfg.VERBOSE:
-                progress.display(idx)
+                progress.display(idx+1)
             if idx+1 == len(data_loader):
                 progress.display_summary()
 
     # TODO: tensorboard logging
+
+    return ({name: float(meter.avg) for name, meter in loss_meters.items()},
+            float(batch_time.avg))
