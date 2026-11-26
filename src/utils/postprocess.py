@@ -33,7 +33,8 @@ def _parabola_offset(values, idx):
 
     return max(-0.5, min(0.5, 0.5 * (left - right) / denom))
 
-def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D, udp=False):
+def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_true_3D, udp=False,
+                             roi_affine=None):
     # heatmaps: [Nk x H x W]
     nK, nH, nW = heatmaps.shape
 
@@ -69,6 +70,14 @@ def solve_pose_from_heatmaps(heatmaps, image_size, threshold, camera, keypts_tru
 
                 keypts[k,0] = xf / nW * image_size[0]
                 keypts[k,1] = yf / nH * image_size[1]
+
+        # Crop -> original mapping for seg-driven ROI inference.  `image_size`
+        # is the crop input size in that case, and the PnP camera stays the
+        # original one (GTBBox convention).
+        if roi_affine is not None:
+            sx, sy, ox, oy = roi_affine
+            keypts[:, 0] = keypts[:, 0] / sx + ox
+            keypts[:, 1] = keypts[:, 1] / sy + oy
 
         # PnP
         q, t = pnp(keypts_true_3D[visibleIdx], keypts[visibleIdx].numpy(),

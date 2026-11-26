@@ -13,6 +13,7 @@ import numpy as np
 import random
 
 from .SPEEDPLUSDataset  import SPEEDPLUSDataset
+from .ROISPEEDPLUSDataset import ROISPEEDPLUSDataset
 from .transforms        import *
 from .target_generators import HeatmapGenerator
 
@@ -44,7 +45,10 @@ def build_dataset(cfg, split='train', load_labels=True):
     else:
         target_generators = None
 
-    dataset = SPEEDPLUSDataset(cfg, split, transforms, target_generators)
+    if cfg.DATASET.ROI.ENABLE:
+        dataset = ROISPEEDPLUSDataset(cfg, split, transforms, target_generators)
+    else:
+        dataset = SPEEDPLUSDataset(cfg, split, transforms, target_generators)
 
     return dataset
 
@@ -79,7 +83,7 @@ def get_dataloader(cfg, split='train', distributed=False, load_labels=True):
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
-        drop_last=True,
+        drop_last=(split == 'train'),
         worker_init_fn=_seed_worker,
         sampler=train_sampler
     )

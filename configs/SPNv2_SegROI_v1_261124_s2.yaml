@@ -1,0 +1,110 @@
+# Stage-2 of SPNv2_SegROI_v1_261124:
+#   crop model trained from scratch on S1 segmentation-driven ROI crops.
+#   Training boxes are cached offline from S1 on synthetic/train.csv; the
+#   expand factor is random in [1.0, 1.5].  Test domains have no GT box prior.
+OUTPUT_DIR: 'checkpoints'
+LOG_DIR: 'logs'
+SEED: 2021
+AUTO_RESUME: True
+CUDA: True
+FP16: True
+VERBOSE: True
+EXP_NAME: 'SPNv2_SegROI_v1_261124_s2'
+DIST:
+  MULTIPROCESSING_DISTRIBUTED: True
+  BACKEND: 'nccl'
+  RANK: 0
+CUDNN:
+  BENCHMARK: True
+  DETERMINISTIC: False
+  ENABLED: True
+DATASET:
+  ROOT: '/opt/data/private/SPEED+'
+  DATANAME: 'speedplusv2'
+  CAMERA: 'camera.json'
+  KEYPOINTS: '/opt/data/private/speNet/src/utils/models/tangoPoints.mat'
+  CADMODEL: 'models/tango.ply'
+  IMAGE_SIZE: [1920, 1200]
+  INPUT_SIZE: [512, 512]
+  OUTPUT_SIZE: [4, 8, 16, 32, 64, 128]
+  MAX_NUM_OBJECTS: 1
+  NUM_KEYPOINTS: 11
+  NUM_ANCHORS: 9
+  SIGMA: 2
+  UDP: False
+  ROI:
+    ENABLE: True
+    TRAIN_CACHE: 'checkpoints/SPNv2_SegROI_v1_261124_s1/roi_cache/synthetic_train.csv'
+    VAL_CACHE: 'checkpoints/SPNv2_SegROI_v1_261124_s1/roi_cache/synthetic_validation.csv'
+    TEST_CACHE: ''
+    K_MIN: 1.0
+    K_MAX: 1.5
+    VAL_K: 1.2
+    CENTER_JITTER: 0.0
+    MIN_SIDE: 64
+    IMAGE_DIR: 'images'
+    MASK_DIR: 'masks'
+AUGMENT:
+  P: 0.5
+  APPLY_TEXTURE_RANDOMIZATION: False
+  ONLINE_TEXTURE: True
+  ONLINE_TEXTURE_BEFORE_AUGMENT: True
+  RANDOM_TEXTURE:
+    ALPHA: 0.5
+    PROB: 0.5
+  ADJUST_BRIGHTNESS_CONTRAST: True
+  APPLY_BLUR: True
+  APPLY_SOLAR_FLARE: True
+  APPLY_RANDOM_ERASE: True
+  APPLY_NOISE: True
+TRAIN:
+  TRAIN_CSV: 'synthetic/labels/train.csv'
+  VAL_CSV: 'synthetic/labels/validation.csv'
+  BEGIN_EPOCH: 0
+  END_EPOCH: 20
+  VALID_FREQ: 1
+  VALID_FRACTION: 0.1
+  IMAGES_PER_GPU: 8
+  OPTIMIZER: AdamW
+  LR: 1.0e-3
+  SCHEDULER: 'step'
+  LR_FACTOR: 0.1
+  LR_STEP: [15, 18]
+  GAMMA1: 0.9
+  GAMMA2: 0.999
+  WD: 1.0e-4
+  WORKERS: 8
+TEST:
+  TEST_CSV: 'lightbox/labels/lightbox.csv'
+  IMAGES_PER_GPU: 1
+  HEAD: ['heatmap', 'segmentation']
+  BBOX_THRESHOLD: 0.0
+  HEATMAP_THRESHOLD: 0.5
+  SPEED_THRESHOLD_Q: 0.169
+  SPEED_THRESHOLD_T: 2.173e-3
+  PROBE_ENABLE: False
+  ROI:
+    S1_CFG: 'configs/SPNv2_SegROI_v1_261124_s1.yaml'
+    S1_EXP_NAME: 'SPNv2_SegROI_v1_261124_s1'
+    S2_EXP_NAME: 'SPNv2_SegROI_v1_261124_s2'
+    K: 1.2
+    K_LIST: [1.0, 1.2, 1.5, 2.0]
+    MASK_THRESHOLD: 0.5
+    MIN_MASK_PX: 32
+    MIN_SIDE: 64
+    FALLBACK: True
+    EDGE_MARGIN: 0.02
+MODEL:
+  BACKBONE:
+    NAME: 'efficientdet_d3'
+  HEAD:
+    NAMES: ['heatmap', 'segmentation']
+    LOSS_HEADS: ['heatmap', 'segmentation']
+    LOSS_FACTORS: [1.0, 1.0]
+    LOSS_NUMS: [1, 1]
+  EFFICIENTDET_PHI: 3
+  USE_GROUPNORM_BACKBONE: False
+  USE_GROUPNORM_HEADS: True
+  GROUPNORM_SIZE: 16
+  # heatmap / segmentation both read P2; BiFPN P3~P7 outputs are unused.
+  FIND_UNUSED_PARAM: True

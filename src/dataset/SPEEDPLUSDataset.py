@@ -124,10 +124,12 @@ class SPEEDPLUSDataset(torch.utils.data.Dataset):
 
         #------------ Generate targets
         targets = {'domain':         anno['domain'],
+                   'imgpath':        anno['imgpath'],
                    'boundingbox':    torch.from_numpy(anno['boundingbox']),
                    'quaternion':     torch.from_numpy(anno['quaternion']),
                    'rotationmatrix': torch.from_numpy(anno['rotationmatrix']),
-                   'translation':    torch.from_numpy(anno['translation'])}
+                   'translation':    torch.from_numpy(anno['translation']),
+                   'keypoints':      torch.from_numpy(anno['keypoints'])}
 
         # Extra target for the segmentation head (required for both training and validation)
         if self.load_masks:

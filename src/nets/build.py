@@ -218,6 +218,40 @@ def _check_bn_exists(module, module_name):
         if isinstance(m, torch.nn.BatchNorm1d) or isinstance(m, torch.nn.BatchNorm2d):
             warnings.warn(f'GroupNorm is activated for {module_name} but found a BatchNorm layer at {name}!')
 
+def _remap_head_indices(state_dict, src_names, dst_names):
+    """Reorder `heads.<i>.*` entries by head name.
+
+    The baseline checkpoint stores `[heatmap, efficientpose, segmentation]`,
+    while the S1 model only has `[heatmap, segmentation]`; a plain
+    `load_state_dict` cannot handle the index shift.
+    """
+    if src_names is None:
+        return state_dict
+
+    src_names = list(src_names)
+    dst_names = list(dst_names)
+    if src_names == dst_names:
+        return state_dict
+
+    remapped = {}
+    for key, value in state_dict.items():
+        if key.startswith('heads.'):
+            parts = key.split('.', 2)
+            if len(parts) != 3:
+                continue
+            src_idx = int(parts[1])
+            if src_idx >= len(src_names):
+                continue
+            name = src_names[src_idx]
+            if name not in dst_names:
+                continue
+            dst_idx = dst_names.index(name)
+            remapped[f'heads.{dst_idx}.{parts[2]}'] = value
+        else:
+            remapped[key] = value
+    return remapped
+
+
 def build_spnv2(cfg):
     net = SPNv2(cfg)
 
@@ -229,6 +263,11 @@ def build_spnv2(cfg):
 
     if cfg.MODEL.PRETRAIN_FILE:
         load_dict = torch.load(cfg.MODEL.PRETRAIN_FILE, map_location='cpu')
+        load_dict = _remap_head_indices(
+            load_dict,
+            cfg.MODEL.PRETRAIN_HEAD_NAMES,
+            cfg.MODEL.HEAD.NAMES,
+        )
         net.load_state_dict(load_dict, strict=cfg.MODEL.PRETRAIN_STRICT)
 
         logger.info(f'   - Pretrained model loaded from {cfg.MODEL.PRETRAIN_FILE}')

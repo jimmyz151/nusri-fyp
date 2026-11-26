@@ -72,6 +72,20 @@ _C.DATASET.SIGMA = 2                                        # Heatmap Gaussian k
 _C.DATASET.UDP   = False                                    # Unbiased data processing: sub-pixel
                                                             # heatmap target & parabola decoding
 
+# - Seg-driven ROI crops (two-stage pipeline)
+_C.DATASET.ROI = CN()
+_C.DATASET.ROI.ENABLE       = False                         # Use ROI-cropped samples instead of full frames
+_C.DATASET.ROI.TRAIN_CACHE  = ''                            # CSV with S1 mask boxes for the training split
+_C.DATASET.ROI.VAL_CACHE    = ''                            # CSV with S1 mask boxes for the validation split
+_C.DATASET.ROI.TEST_CACHE   = ''                            # CSV with S1 mask boxes for the test split
+_C.DATASET.ROI.K_MIN        = 1.0                           # Training expand factor, lower bound
+_C.DATASET.ROI.K_MAX        = 1.5                           # Training expand factor, upper bound
+_C.DATASET.ROI.VAL_K        = 1.2                           # Deterministic expand factor for validation
+_C.DATASET.ROI.CENTER_JITTER = 0.0                          # Training center shift, fraction of box side
+_C.DATASET.ROI.MIN_SIDE     = 64                            # Minimum ROI side in original pixels
+_C.DATASET.ROI.IMAGE_DIR    = 'images'                      # Original-resolution images
+_C.DATASET.ROI.MASK_DIR     = 'masks'                       # Original-resolution masks
+
 # ------------------------------------------------------------------------------ #
 # Training-related parameters
 # ------------------------------------------------------------------------------ #
@@ -149,6 +163,19 @@ _C.TEST.HEATMAP_THRESHOLD = 0.5                             # Keypoints detectio
 _C.TEST.BBOX_THRESHOLD    = 0.5                             # Bounding box detection threshold
 _C.TEST.TEST_CSV = 'lightbox/splits/lightbox.csv'           # CSV file to containing images to test on
 
+# - Seg-driven ROI test pipeline (see src/tools/test_seg_roi.py)
+_C.TEST.ROI = CN()
+_C.TEST.ROI.S1_CFG         = ''                             # Full-frame ROI-detector config
+_C.TEST.ROI.S1_EXP_NAME    = ''                             # Default S1 checkpoint under checkpoints/<EXP>
+_C.TEST.ROI.S2_EXP_NAME    = ''                             # Default S2 checkpoint under checkpoints/<EXP>
+_C.TEST.ROI.K              = 1.2                            # Expand factor for the default operating point
+_C.TEST.ROI.K_LIST         = [1.0, 1.2, 1.5, 2.0]           # Sensitivity sweep
+_C.TEST.ROI.MASK_THRESHOLD = 0.5                            # S1 mask binarization threshold
+_C.TEST.ROI.MIN_MASK_PX    = 32                             # Reject masks smaller than this
+_C.TEST.ROI.MIN_SIDE       = 64                             # Minimum ROI side in original pixels
+_C.TEST.ROI.FALLBACK       = True                           # Fall back to the S1 full-frame pose
+_C.TEST.ROI.EDGE_MARGIN    = 0.02                           # Keypoint-to-crop-border margin (fraction of side)
+
 # - Thresholds for SPEED metric (SPEED+ lightbox, sunlamp)
 _C.TEST.SPEED_THRESHOLD_Q = 0.169    # [deg]
 _C.TEST.SPEED_THRESHOLD_T = 2.173e-3 # [m/m]
@@ -173,6 +200,7 @@ _C.ODR.IMAGES_PER_BATCH  = 4                                # Batch size for upd
 _C.MODEL = CN()
 _C.MODEL.PRETRAIN_FILE     = None                           # Path to pre-trained model to load
 _C.MODEL.PRETRAIN_STRICT   = True                           # 是否严格匹配 PRETRAIN_FILE 的 state_dict
+_C.MODEL.PRETRAIN_HEAD_NAMES = None                         # 源权重的头顺序，用于按名字重排 heads.<i>
 _C.MODEL.EFFICIENTDET_PHI  = 0                              # EfficientNet scaling parameter
 _C.MODEL.FIND_UNUSED_PARAM = False                          # See find_unused_parameters argument of
                                                             # torch.nn.parallel.DistributedDataParallel
@@ -224,6 +252,12 @@ def update_config(cfg, args):
     cfg.DATASET.KEYPOINTS = join(cfg.DATASET.ROOT, cfg.DATASET.KEYPOINTS)
     cfg.DATASET.CADMODEL  = join(cfg.DATASET.ROOT, cfg.DATASET.CADMODEL)
 
+    # ROI cache paths are relative to the project root by default
+    for key in ['TRAIN_CACHE', 'VAL_CACHE', 'TEST_CACHE']:
+        path = getattr(cfg.DATASET.ROI, key)
+        if path and not Path(path).is_absolute():
+            setattr(cfg.DATASET.ROI, key, join(cfg.ROOT, path))
+
     # Assert types
     if not isinstance(cfg.DATASET.OUTPUT_SIZE, (list, tuple)):
         cfg.DATASET.OUTPUT_SIZE = [cfg.DATASET.OUTPUT_SIZE]
@@ -231,6 +265,8 @@ def update_config(cfg, args):
         cfg.MODEL.HEAD.NAMES = [cfg.MODEL.HEAD.NAMES]
     if not isinstance(cfg.MODEL.HEAD.LOSS_FACTORS, (list, tuple)):
         cfg.MODEL.HEAD.LOSS_FACTORS = [cfg.MODEL.HEAD.LOSS_FACTORS]
+    if not isinstance(cfg.TEST.ROI.K_LIST, (list, tuple)):
+        cfg.TEST.ROI.K_LIST = [cfg.TEST.ROI.K_LIST]
 
     if cfg.MODEL.HEAD.POSE_REGRESSION_LOSS not in ['speed', 'transformation']:
         raise ValueError('Pose regression loss must be either transformation or speed')

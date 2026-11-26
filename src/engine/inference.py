@@ -108,6 +108,12 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
         if 'segmentation' in cfg.TEST.HEAD:
             mask_gt = targets['mask'][0].numpy()
 
+        # Seg-driven ROI: heatmaps live in crop coordinates; the affine maps
+        # them back to the original camera frame before PnP.
+        roi_affine = None
+        if 'roi_affine' in targets:
+            roi_affine = tuple(float(v) for v in targets['roi_affine'][0])
+
         with torch.no_grad():
             # Forward pass
             outputs = model(images,
@@ -127,10 +133,12 @@ def do_valid(epoch, cfg, model, data_loader, camera, keypts_true_3D,
                 if name == 'heatmap':
                     keypts_pr, q_pr, t_pr, reject = solve_pose_from_heatmaps(
                         outputs[i].squeeze(0).cpu(),
-                        cfg.DATASET.IMAGE_SIZE,
+                        cfg.DATASET.INPUT_SIZE if roi_affine is not None
+                        else cfg.DATASET.IMAGE_SIZE,
                         cfg.TEST.HEATMAP_THRESHOLD,
                         camera, keypts_true_3D,
-                        udp=cfg.DATASET.UDP
+                        udp=cfg.DATASET.UDP,
+                        roi_affine=roi_affine,
                     )
 
                     if not reject:
